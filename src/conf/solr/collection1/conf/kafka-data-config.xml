@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<dataConfig>
+    <dataSource type="com.kmwllc.solr.solrkafka.KafkaDataSource" />
+    <document>
+	    <entity name="item" query="testtopic" deltaQuery="testtopic">
+            <field column="id" name="id" />
+
+        </entity>
+    </document>
+</dataConfig>
+

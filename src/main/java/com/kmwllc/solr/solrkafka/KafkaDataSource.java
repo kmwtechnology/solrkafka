@@ -26,27 +26,27 @@ import org.slf4j.LoggerFactory;
  * for the same document end up in the same partition and therefore have ordered delivery.
  * 
  * This consumer uses the standard StringSerializer/Deserializer from Kafka for the key serde
- * It uses the SokrDocumentSerializer/Deserializer for the value serde
+ * It uses the SolrDocumentSerializer/Deserializer for the value serde
  * 
  * @author kwatters
  *
  */
 public class KafkaDataSource extends DataSource<Iterator<Map<String, Object>>> {
 	
-	private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
-	private String bootStrapServers = "localhost:9092";
-	private String consumerGroupId = "SolrKafkaConsumer";
+	private static final Logger log = LoggerFactory.getLogger(KafkaDataSource.class);
+	private final String bootStrapServers = "localhost:9092";
+	private final String consumerGroupId = "SolrKafkaConsumer";
 	private Consumer<String, SolrDocument> consumer = null;
 	private KafkaIterator<Map<String, Object>> iter = null;
 	private LinkedBlockingQueue<SolrDocument> queue = null;
-	private int queueSize = 100;
+	private final int queueSize = 100;
 	public boolean fromBeginning = true;
 	public boolean readFullyAndExit = false;
-	
+
 	@Override
 	public void init(Context context, Properties initProps) {
 		// Okie dokie.. here , i guess we've got to do what?  setup the properties .. connect to kafka/ subscribe to a topic.
-		queue = new LinkedBlockingQueue<SolrDocument>(queueSize);
+		queue = new LinkedBlockingQueue<>(queueSize);
 		if (initProps == null) 
 			initProps = new Properties();
 		consumer = createConsumer(initProps);
@@ -54,9 +54,9 @@ public class KafkaDataSource extends DataSource<Iterator<Map<String, Object>>> {
 		
 		// If this is a full ingest, we should run from the beginning// o/w we should pick up from our last known offsets.
 		// reset behavior for unknown offsets is/should be earliest.
-		if (Context.FULL_DUMP.contentEquals(context.currentProcess())) {
+		if (context != null && Context.FULL_DUMP.contentEquals(context.currentProcess())) {
 			fromBeginning = true;
-		} else if (Context.DELTA_DUMP.contentEquals(context.currentProcess())) {
+		} else if (context != null && Context.DELTA_DUMP.contentEquals(context.currentProcess())) {
 			fromBeginning = false;
 		} else {
 			log.warn("Unknown mode, only FULL_DUMP and DELTA_DUMP supported, defaulting to full.");
@@ -74,8 +74,7 @@ public class KafkaDataSource extends DataSource<Iterator<Map<String, Object>>> {
 		// How do we force the offset ?
 		props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 		// Create the consumer using props.
-		Consumer<String, SolrDocument> cons = new KafkaConsumer<String, SolrDocument>(props);
-		return cons;
+		return new KafkaConsumer<>(props);
 	}
 
 	@Override
@@ -84,7 +83,7 @@ public class KafkaDataSource extends DataSource<Iterator<Map<String, Object>>> {
 		// TODO : maybe this should be created up front and just returned.
 		// If this method is called often, we want to return the same iterator (likely?)
 		// TODO:  I think we should create a new consumer here, and switch the "query" passed in to be the topic name?
-		log.info("GetData called with topic: {}");
+		log.info("GetData called with topic: {}", topic);
 		// Subscribe to the topic.
 		consumer.subscribe(Collections.singletonList(topic));
 		// If we are supposed to start from the beginning.. let's see if we can seek there.
@@ -92,7 +91,7 @@ public class KafkaDataSource extends DataSource<Iterator<Map<String, Object>>> {
 			consumer.poll(0);
 			consumer.seekToBeginning(consumer.assignment());
 		}
-		iter = new KafkaIterator(consumer, queue);
+		iter = new KafkaIterator<>(consumer, queue);
 		// TODO: better config for this kafka iterator object.
 		iter.readFullyAndExit = this.readFullyAndExit;
 		return iter;

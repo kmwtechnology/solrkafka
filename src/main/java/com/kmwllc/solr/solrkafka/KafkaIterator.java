@@ -1,6 +1,5 @@
 package com.kmwllc.solr.solrkafka;
 
-import java.lang.invoke.MethodHandles;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -23,7 +22,7 @@ import org.slf4j.LoggerFactory;
  */
 public class KafkaIterator<T> implements Iterator<Map<String,Object>>, Runnable {
 
-	private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
+	private static final Logger log = LoggerFactory.getLogger(KafkaIterator.class);
 	public final Thread consumerThread;
 	private final Consumer<String, SolrDocument> consumer;
 	private final LinkedBlockingQueue<SolrDocument> queue;
@@ -64,7 +63,7 @@ public class KafkaIterator<T> implements Iterator<Map<String,Object>>, Runnable 
 		while(o == null) {
 			// grab the next element in the queue to return.
 			try {
-				o = (SolrDocument)queue.poll(pollTimeout, TimeUnit.MILLISECONDS);
+				o = queue.poll(pollTimeout, TimeUnit.MILLISECONDS);
 			} catch (InterruptedException e) {
 				// TODO Auto-generated catch block
 				log.error("Kafka Iterator Interrupted. ", e);

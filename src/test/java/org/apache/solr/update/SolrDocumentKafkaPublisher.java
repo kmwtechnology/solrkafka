@@ -28,7 +28,7 @@ public class SolrDocumentKafkaPublisher {
 	private final static String BOOTSTRAP_SERVERS = "localhost:9092";
 	private final static String CLIENT_ID = "KafkaExampleProducer";
 	public int sendMessageCount = 1000000;
-	
+
 	private static Producer<String, SolrDocument> createProducer() {
 		Properties props = new Properties();
 		props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,BOOTSTRAP_SERVERS);
