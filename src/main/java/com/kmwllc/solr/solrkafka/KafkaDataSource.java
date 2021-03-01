@@ -1,6 +1,5 @@
 package com.kmwllc.solr.solrkafka;
 
-import java.lang.invoke.MethodHandles;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Map;
@@ -73,13 +72,17 @@ public class KafkaDataSource extends DataSource<Iterator<Map<String, Object>>> {
 		props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SolrDocumentDeserializer.class.getName());
 		// How do we force the offset ?
 		props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+		// TODO: https://www.programmersought.com/article/37481195666/
+		Thread.currentThread().setContextClassLoader(null);
 		// Create the consumer using props.
 		return new KafkaConsumer<>(props);
 	}
 
+	// TODO: CONNER: turn on autocommit and see if it commits automatically
+
 	@Override
 	public Iterator<Map<String, Object>> getData(String topic) {
-		// Create the iterator and return it?  
+		// Create the iterator and return it?
 		// TODO : maybe this should be created up front and just returned.
 		// If this method is called often, we want to return the same iterator (likely?)
 		// TODO:  I think we should create a new consumer here, and switch the "query" passed in to be the topic name?

@@ -43,14 +43,14 @@ public class SolrKafkaConsumerTest extends SolrTestCaseJ4 {
 
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
-  static String savedFactory;
+  private static String savedFactory;
   @BeforeClass
   public static void beforeClass() throws Exception {
     savedFactory = System.getProperty("solr.DirectoryFactory");
     System.setProperty("solr.directoryFactory", "org.apache.solr.core.MockFSDirectoryFactory");
     System.setProperty("enable.update.log", "false"); // schema12 doesn't support _version_
     systemSetPropertySolrTestsMergePolicyFactory(TieredMergePolicyFactory.class.getName());
-    initCore("solrconfig.xml", "schema12.xml");
+    initCore("solrconfig.xml", "managed-schema");
   }
   
   @AfterClass

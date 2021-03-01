@@ -7,9 +7,11 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 import com.kmwllc.solr.solrkafka.KafkaDataSource;
+import org.junit.jupiter.api.Disabled;
 
 public class TestKakfaIterator {
 
+	@Disabled
 	@Test
 	public void testIterator() {
 		KafkaDataSource ds = new KafkaDataSource();
