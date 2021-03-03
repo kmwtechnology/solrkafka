@@ -73,9 +73,13 @@ public class KafkaDataSource extends DataSource<Iterator<Map<String, Object>>> {
 		// How do we force the offset ?
 		props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 		// TODO: https://www.programmersought.com/article/37481195666/
+		//  https://stackoverflow.com/questions/1771679/difference-between-threads-context-class-loader-and-normal-classloader/36228195#36228195
+		ClassLoader loader = Thread.currentThread().getContextClassLoader();
 		Thread.currentThread().setContextClassLoader(null);
 		// Create the consumer using props.
-		return new KafkaConsumer<>(props);
+		KafkaConsumer<String, SolrDocument> consumer = new KafkaConsumer<>(props);
+		Thread.currentThread().setContextClassLoader(loader);
+		return consumer;
 	}
 
 	// TODO: CONNER: turn on autocommit and see if it commits automatically

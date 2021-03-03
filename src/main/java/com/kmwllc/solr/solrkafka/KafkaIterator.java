@@ -31,8 +31,7 @@ public class KafkaIterator<T> implements Iterator<Map<String,Object>>, Runnable 
 	private long pollTimeout = 1000;
 	private volatile boolean running = false;
 	public boolean readFullyAndExit = false;
-//	private Instant lastSend = Instant.now();
-	
+
 	public KafkaIterator(Consumer<String, SolrDocument> consumer , LinkedBlockingQueue<SolrDocument> queue) { 
 		this.consumer = consumer;
 		this.queue = queue;
@@ -73,14 +72,7 @@ public class KafkaIterator<T> implements Iterator<Map<String,Object>>, Runnable 
 				running = false;
 				break;
 			}
-//
-//			if (Instant.now().minus(1, ChronoUnit.MINUTES).isAfter(lastSend)) {
-//				running = false;
-//				return null;
-//			}
-			// o = (SolrDocument)queue.poll();
 		}
-//		lastSend = Instant.now();
 		// TODO: How are children documents going to be represented/handled?
 		return o;
 	}

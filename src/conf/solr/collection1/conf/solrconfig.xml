@@ -38,9 +38,13 @@
     -->
     <luceneMatchVersion>8.7.0</luceneMatchVersion>
 
-    <lib dir="${solr.install.dir:../../../..}/dist/" regex="solr-dataimporthandler-.*\.jar"/>
-    <lib dir="/Users/connernilsen/Documents/solrkafka/target/" />
-    <lib dir="/Users/connernilsen/Documents/solrkafka/" />
+    <lib dir="${solr.install.dir:../../../..}/dist/" regex="solr-dataimporthandler-.*\.jar" />
+    <lib dir="${solr.install.dir}/lib/" regex=".*\.jar" />
+
+    <autoCommit>
+        <maxTime>${solr.autoCommit.maxTime:15000}</maxTime>
+        <openSearcher>false</openSearcher>
+    </autoCommit>
 
     <requestHandler name="/select" class="solr.SearchHandler">
         <lst name="defaults">
