@@ -52,3 +52,19 @@ hit the "Execute" button, and you should see documents be imported when you hit 
 
 If autocommit is turned on, the data import plugin can be run once, left on, and results will appear
 after autocommit (and collection/core sync).
+
+
+# New Impl
+
+Copy produced jar and kafka-clients jar at root of project to lib dir.
+
+might be able to do without the contained list
+```xml
+<lib dir="${solr.install.dir}/lib/" regex=".*\.jar" />
+<requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.KafkaIndexHandler" startup="lazy">
+    <lst name="defaults">
+    </lst>
+</requestHandler>
+```
+
+add title and date text_general fields

@@ -36,7 +36,7 @@ public class KafkaDataSource extends DataSource<Iterator<Map<String, Object>>> {
 	private final String bootStrapServers = "localhost:9092";
 	private final String consumerGroupId = "SolrKafkaConsumer";
 	private Consumer<String, SolrDocument> consumer = null;
-	private KafkaIterator<Map<String, Object>> iter = null;
+	private KafkaIterator iter = null;
 	private LinkedBlockingQueue<SolrDocument> queue = null;
 	private final int queueSize = 100;
 	public boolean fromBeginning = true;
@@ -65,15 +65,15 @@ public class KafkaDataSource extends DataSource<Iterator<Map<String, Object>>> {
 	}
 
 	private Consumer<String, SolrDocument> createConsumer(Properties props) {
-		// TODO: should I override these values? or just expect that they're set when they're passed in?
-		props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootStrapServers);
-		props.put(ConsumerConfig.GROUP_ID_CONFIG, consumerGroupId);
-		props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-		props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SolrDocumentDeserializer.class.getName());
+		props.putIfAbsent(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootStrapServers);
+		props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, consumerGroupId);
+		props.putIfAbsent(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+		props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SolrDocumentDeserializer.class.getName());
 		// How do we force the offset ?
-		props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-		// TODO: https://www.programmersought.com/article/37481195666/
-		//  https://stackoverflow.com/questions/1771679/difference-between-threads-context-class-loader-and-normal-classloader/36228195#36228195
+		props.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+		// https://www.programmersought.com/article/37481195666/
+		// https://stackoverflow.com/questions/1771679/difference-between-threads-context-class-loader-and-normal-classloader/36228195#36228195
+    // Override class loader for creating KafkaConsumer
 		ClassLoader loader = Thread.currentThread().getContextClassLoader();
 		Thread.currentThread().setContextClassLoader(null);
 		// Create the consumer using props.
@@ -81,8 +81,6 @@ public class KafkaDataSource extends DataSource<Iterator<Map<String, Object>>> {
 		Thread.currentThread().setContextClassLoader(loader);
 		return consumer;
 	}
-
-	// TODO: CONNER: turn on autocommit and see if it commits automatically
 
 	@Override
 	public Iterator<Map<String, Object>> getData(String topic) {
@@ -98,7 +96,7 @@ public class KafkaDataSource extends DataSource<Iterator<Map<String, Object>>> {
 			consumer.poll(0);
 			consumer.seekToBeginning(consumer.assignment());
 		}
-		iter = new KafkaIterator<>(consumer, queue);
+		iter = new KafkaIterator(consumer, queue);
 		// TODO: better config for this kafka iterator object.
 		iter.readFullyAndExit = this.readFullyAndExit;
 		return iter;

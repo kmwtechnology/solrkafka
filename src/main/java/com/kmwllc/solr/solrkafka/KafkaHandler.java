@@ -1,16 +1,19 @@
 package com.kmwllc.solr.solrkafka;
 
+import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.common.PartitionInfo;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.solr.common.SolrDocument;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-
-import org.apache.kafka.clients.consumer.Consumer;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.apache.solr.common.SolrDocument;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Small helper thread that will iterate SolrInputDocuments from a kafka topic and buffer them.
@@ -18,17 +21,17 @@ import org.slf4j.LoggerFactory;
  * 
  * @author kwatters
  */
-public class KafkaIterator implements Iterator<Map<String,Object>>, Runnable {
+public class KafkaHandler implements Iterator<DocumentData>, Runnable {
 
-	private static final Logger log = LoggerFactory.getLogger(KafkaIterator.class);
+	private static final Logger log = LoggerFactory.getLogger(KafkaHandler.class);
 	public final Thread consumerThread;
 	private final Consumer<String, SolrDocument> consumer;
-	private final LinkedBlockingQueue<SolrDocument> queue;
+	private final LinkedBlockingQueue<DocumentData> queue;
 	private long pollTimeout = 1000;
 	private volatile boolean running;
 	public boolean readFullyAndExit = false;
 
-	public KafkaIterator(Consumer<String, SolrDocument> consumer , LinkedBlockingQueue<SolrDocument> queue) {
+	public KafkaHandler(Consumer<String, SolrDocument> consumer , LinkedBlockingQueue<DocumentData> queue) {
 		this.consumer = consumer;
 		this.queue = queue;
 		consumerThread = new Thread(this, "KafkaConsumerThread");
@@ -43,21 +46,17 @@ public class KafkaIterator implements Iterator<Map<String,Object>>, Runnable {
 		// TODO: if the connection is severed? perhaps we might want to return false?
 		// we could have a mode where this iterator will say it's done once it's caught up.
 		if (!running && readFullyAndExit) {
-			if (queue.size() > 0) {
-				return true;
-			} else {
-				return false;
-			}
+			return queue.size() > 0;
 		} else {
 			return true;
 		}
 	}
 
 	@Override
-	public Map<String,Object> next() {
+	public DocumentData next() {
 		// In the background there is a thread polling and putting messages on the blocking queue
 		// This method blocks until something is available in the queue.
-		SolrDocument o = null;
+		DocumentData o = null;
 		while(o == null) {
 			// grab the next element in the queue to return.
 			try {
@@ -71,6 +70,10 @@ public class KafkaIterator implements Iterator<Map<String,Object>>, Runnable {
 		}
 		// TODO: How are children documents going to be represented/handled?
 		return o;
+	}
+
+	public void commitIndex(Map<TopicPartition, OffsetAndMetadata> offsets) {
+		consumer.commitSync(offsets);
 	}
 
 	@Override
@@ -93,7 +96,9 @@ public class KafkaIterator implements Iterator<Map<String,Object>>, Runnable {
 					// log.info("Consumer Record:({}, {}, {}, {}) Queue Size: ({})", record.key(), record.value(), record.partition(), record.offset(), queue.size());
 					// System.out.printf("Consumer Record:(%d, %s, %d, %d) Queue Size: (%d)\n");
 					try {
-						queue.put(record.value());
+						TopicPartition partInfo = new TopicPartition(record.topic(), record.partition());
+						OffsetAndMetadata offset = new OffsetAndMetadata(record.offset());
+						queue.put(new DocumentData(record.value(), partInfo, offset));
 					} catch (InterruptedException e) {
 						running = false;
 						log.info("Kafka consumer thread interrupted.", e);

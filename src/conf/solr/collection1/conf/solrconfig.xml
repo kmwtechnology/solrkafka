@@ -36,14 +36,14 @@
       that you fully re-index after changing this setting as it can
       affect both how text is indexed and queried.
     -->
-    <luceneMatchVersion>8.7.0</luceneMatchVersion>
+    <luceneMatchVersion>8.8.1</luceneMatchVersion>
 
     <lib dir="${solr.install.dir:../../../..}/dist/" regex="solr-dataimporthandler-.*\.jar" />
     <lib dir="${solr.install.dir}/lib/" regex=".*\.jar" />
 
     <autoCommit>
         <maxTime>${solr.autoCommit.maxTime:15000}</maxTime>
-        <openSearcher>false</openSearcher>
+        <openSearcher>true</openSearcher>
     </autoCommit>
 
     <requestHandler name="/select" class="solr.SearchHandler">
