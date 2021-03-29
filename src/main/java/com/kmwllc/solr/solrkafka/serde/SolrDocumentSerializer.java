@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka;
+package com.kmwllc.solr.solrkafka.serde;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

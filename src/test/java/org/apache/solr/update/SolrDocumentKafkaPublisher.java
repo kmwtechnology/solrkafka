@@ -3,11 +3,10 @@ package org.apache.solr.update;
 import org.apache.kafka.clients.producer.*;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.solr.common.SolrDocument;
-import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.kmwllc.solr.solrkafka.SolrDocumentSerializer;
+import com.kmwllc.solr.solrkafka.serde.SolrDocumentSerializer;
 
 import java.lang.invoke.MethodHandles;
 import java.util.Date;
@@ -29,6 +28,11 @@ public class SolrDocumentKafkaPublisher {
 	private final static String CLIENT_ID = "KafkaExampleProducer";
 	public int sendMessageCount = 1000000;
 
+	public static void main(String[] args) throws Exception {
+		SolrDocumentKafkaPublisher pub = new SolrDocumentKafkaPublisher();
+		pub.runProducer();
+	}
+
 	private static Producer<String, SolrDocument> createProducer() {
 		Properties props = new Properties();
 		props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,BOOTSTRAP_SERVERS);
@@ -38,7 +42,6 @@ public class SolrDocumentKafkaPublisher {
 		return new KafkaProducer<>(props);
 	}
 
-	@Test
 	public void runProducer() throws Exception {
 		final Producer<String, SolrDocument> producer = createProducer();
 		long time = System.currentTimeMillis();

@@ -58,13 +58,39 @@ after autocommit (and collection/core sync).
 
 Copy produced jar and kafka-clients jar at root of project to lib dir.
 
-might be able to do without the contained list
+Copy the following into the solrconfig.xml file, and make sure the `openSearcher` argument of `autoCommit` is set to true.
+
 ```xml
-<lib dir="${solr.install.dir}/lib/" regex=".*\.jar" />
-<requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.KafkaIndexHandler" startup="lazy">
-    <lst name="defaults">
-    </lst>
-</requestHandler>
+    <lib dir="${solr.install.dir}/lib/" regex=".*\.jar"/>
+    <requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.requesthandler.SolrKafkaRequestHandler" startup="lazy"/>
+    <requestHandler name="/kafka/status" class="com.kmwllc.solr.solrkafka.requesthandler.SolrKafkaStatusRequestHandler"
+                    startup="lazy"/>
 ```
 
-add title and date text_general fields
+For tests, send this request to your solr collection to update the schema:
+
+```json
+{
+    "add-field": [
+        {
+            "name": "title",
+            "type": "text_general"
+        },
+        {
+            "name": "date",
+            "type": "text_general"
+        }
+    ]
+}
+```
+
+This plugin works similarly to the previous version, however, Solr is started normally (ignore everything in the
+Start Solr section except for the `-a` flag if desired), and the plugin is started as described below.
+
+The SolrKafka plugin can be started by performing a request to `GET <solr_endpoint>/solr/<collection>/kafka`.
+The following query parameters are accepted:
+
+- `fromBeginning`: `true` if the plugin should start from the beginning of the topic's history. Default is `false`.
+- `exitAtEnd`: `true` if the plugin should exit once catching up to the end of the topic's history. Default is `false`.
+
+A status endpoint is also available at `GET <solr_endpoint>/solr/<collection>/kafka/status`.

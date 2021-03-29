@@ -17,7 +17,7 @@ import org.apache.solr.handler.dataimport.EntityProcessorWrapper;
 import org.apache.solr.handler.dataimport.VariableResolver;
 import org.junit.Test;
 
-import com.kmwllc.solr.solrkafka.KafkaDataSource;
+import com.kmwllc.solr.solrkafka.datasource.KafkaDataSource;
 // import org.apache.solr.handler.dataimport.AbstractDataImportHandlerTestCase;
 // public class TestKafkaDataSource extends AbstractDataImportHandlerTestCase {
 public class TestKafkaDataSource {

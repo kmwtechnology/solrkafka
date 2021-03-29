@@ -3,10 +3,9 @@ package org.apache.solr.update;
 import java.util.Iterator;
 import java.util.Map;
 
-import org.junit.Ignore;
 import org.junit.Test;
 
-import com.kmwllc.solr.solrkafka.KafkaDataSource;
+import com.kmwllc.solr.solrkafka.datasource.KafkaDataSource;
 import org.junit.jupiter.api.Disabled;
 
 public class TestKakfaIterator {

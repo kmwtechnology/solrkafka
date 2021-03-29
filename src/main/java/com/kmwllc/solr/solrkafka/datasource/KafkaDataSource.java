@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka;
+package com.kmwllc.solr.solrkafka.datasource;
 
 import java.util.Collections;
 import java.util.Iterator;
@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.LinkedBlockingQueue;
 
+import com.kmwllc.solr.solrkafka.serde.SolrDocumentDeserializer;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;

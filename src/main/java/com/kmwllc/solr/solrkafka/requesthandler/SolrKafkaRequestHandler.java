@@ -1,5 +1,6 @@
-package com.kmwllc.solr.solrkafka;
+package com.kmwllc.solr.solrkafka.requesthandler;
 
+import com.kmwllc.solr.solrkafka.serde.SolrDocumentDeserializer;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -40,24 +41,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.Semaphore;
 
-public class KafkaIndexHandler extends RequestHandlerBase implements SolrCoreAware, PluginInfoInitialized, PermissionNameProvider, Runnable, AutoCloseable {
-  private static final Logger log = LogManager.getLogger(KafkaIndexHandler.class);
+public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrCoreAware, PluginInfoInitialized, PermissionNameProvider, Runnable, AutoCloseable {
+  private static final Logger log = LogManager.getLogger(SolrKafkaRequestHandler.class);
   private SolrCore core;
-  private volatile boolean running = false;
   private Thread thread;
-  private Consumer<String, SolrDocument> consumer;
   private LinkedBlockingQueue<DocumentData> queue;
   public boolean fromBeginning;
   public boolean readFullyAndExit = false;
   private static final String topic = "testtopic";
   private volatile KafkaHandler iter;
+  private final Properties initProps = new Properties();
 
-  public KafkaIndexHandler() {
+  public SolrKafkaRequestHandler() {
     int queueSize = 100;
     queue = new LinkedBlockingQueue<>(queueSize);
-    Properties initProps = new Properties();
-    consumer = createConsumer(initProps);
     log.info("Kafka Consumer created.");
   }
 
@@ -83,6 +82,7 @@ public class KafkaIndexHandler extends RequestHandlerBase implements SolrCoreAwa
 
   @Override
   public void handleRequestBody(SolrQueryRequest req, SolrQueryResponse rsp) throws Exception {
+    SolrKafkaStatusRequestHandler.setHandler(this);
     ResponseBuilder rb = new ResponseBuilder(req, rsp, new ArrayList<>());
 
     CircuitBreakerManager circuitBreakerManager = req.getCore().getCircuitBreakerManager();
@@ -94,19 +94,14 @@ public class KafkaIndexHandler extends RequestHandlerBase implements SolrCoreAwa
       return;
     }
 
-    if (running) {
+    if (thread != null && thread.isAlive()) {
       rsp.add("Status", "Request already running");
       return;
     }
 
-    if (thread != null && thread.isAlive()) {
-      thread.interrupt();
-      log.warn("Thread marked done but was interrupted");
-    }
-
+    fromBeginning = req.getParams().getBool("fromBeginning", false);
+    readFullyAndExit = req.getParams().getBool("exitAtEnd", readFullyAndExit);
     thread = new Thread(this);
-    fromBeginning = req.getParams().getBool("fromBeginning", true);
-    running = true;
     thread.start();
     rsp.add("Status", "Started");
   }
@@ -150,7 +145,6 @@ public class KafkaIndexHandler extends RequestHandlerBase implements SolrCoreAwa
   @Override
   public void close() {
     iter.stop();
-    consumer.close();
     thread.interrupt();
   }
 
@@ -158,6 +152,7 @@ public class KafkaIndexHandler extends RequestHandlerBase implements SolrCoreAwa
   public void run() {
     log.info("Starting Kafka consumer");
     UpdateHandler updateHandler = core.getUpdateHandler();
+    Consumer<String, SolrDocument> consumer = createConsumer(initProps);
     // Subscribe to the topic.
     consumer.subscribe(Collections.singletonList(topic));
     // If we are supposed to start from the beginning.. let's see if we can seek there.
@@ -167,13 +162,22 @@ public class KafkaIndexHandler extends RequestHandlerBase implements SolrCoreAwa
     }
     iter = new KafkaHandler(consumer, queue);
     iter.readFullyAndExit = this.readFullyAndExit;
+    // TODO: would this be better as an atoimc reference?
+    Semaphore mapLock = new Semaphore(1);
     Map<TopicPartition, OffsetAndMetadata> addedOffsets = new HashMap<>();
 
     updateHandler.registerCommitCallback(new SolrEventListener() {
       @Override
       public void postCommit() {
-        iter.commitIndex(addedOffsets);
+        try {
+          mapLock.acquire();
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+
+        iter.commitIndex(Map.copyOf(addedOffsets));
         addedOffsets.clear();
+        mapLock.release();
         log.info("Updated offsets");
       }
 
@@ -187,22 +191,27 @@ public class KafkaIndexHandler extends RequestHandlerBase implements SolrCoreAwa
       public void init(NamedList args) { }
     });
 
-    while (iter.hasNext() && running) {
+    while (iter.hasNext()) {
       DocumentData doc = iter.next();
       AddUpdateCommand add = new AddUpdateCommand(buildReq(doc.getDoc()));
       add.solrDoc = doc.convertToInputDoc();
       try {
         updateHandler.addDoc(add);
+        try {
+          mapLock.acquire();
+        } catch (InterruptedException e) {
+          thread.interrupt();
+        }
         addedOffsets.put(doc.getPart(), doc.getOffset());
+        mapLock.release();
       } catch (IOException | SolrException e) {
         log.error("Error occurred with Kafka index handler", e);
-        running = false;
         return;
       }
     }
 
     log.info("Kafka consumer finished");
-    running = false;
+    iter.stop();
   }
 
   private SolrQueryRequest buildReq(Map<String, Object> doc) {
@@ -213,5 +222,9 @@ public class KafkaIndexHandler extends RequestHandlerBase implements SolrCoreAwa
     SolrQueryRequest req = new LocalSolrQueryRequest(core, new NamedList<>(nl));
     req.setJSON(doc);
     return req;
+  }
+
+  boolean isThreadAlive() {
+    return thread != null && thread.isAlive();
   }
 }

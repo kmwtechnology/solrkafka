@@ -1,16 +1,19 @@
-package com.kmwllc.solr.solrkafka;
-
-import java.util.Iterator;
-import java.util.Map;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
+package com.kmwllc.solr.solrkafka.requesthandler;
 
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.solr.common.SolrDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Iterator;
+import java.util.Map;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Small helper thread that will iterate SolrInputDocuments from a kafka topic and buffer them.
@@ -18,19 +21,21 @@ import org.slf4j.LoggerFactory;
  * 
  * @author kwatters
  */
-public class KafkaIterator implements Iterator<Map<String,Object>>, Runnable {
+public class KafkaHandler implements Iterator<DocumentData>, Runnable {
 
-	private static final Logger log = LoggerFactory.getLogger(KafkaIterator.class);
+	private static final Logger log = LoggerFactory.getLogger(KafkaHandler.class);
 	public final Thread consumerThread;
 	private final Consumer<String, SolrDocument> consumer;
-	private final LinkedBlockingQueue<SolrDocument> queue;
+	private final LinkedBlockingQueue<DocumentData> inputQueue;
 	private long pollTimeout = 1000;
 	private volatile boolean running;
-	public boolean readFullyAndExit = false;
+	public volatile boolean readFullyAndExit = false;
+	private final Semaphore exitSemaphore = new Semaphore(1);
+	private final LinkedBlockingQueue<Map<TopicPartition, OffsetAndMetadata>> pendingCommits = new LinkedBlockingQueue<>();
 
-	public KafkaIterator(Consumer<String, SolrDocument> consumer , LinkedBlockingQueue<SolrDocument> queue) {
+	public KafkaHandler(Consumer<String, SolrDocument> consumer , LinkedBlockingQueue<DocumentData> queue) {
 		this.consumer = consumer;
-		this.queue = queue;
+		this.inputQueue = queue;
 		consumerThread = new Thread(this, "KafkaConsumerThread");
 		consumerThread.start();
 		running = true;
@@ -39,29 +44,21 @@ public class KafkaIterator implements Iterator<Map<String,Object>>, Runnable {
 
 	@Override
 	public boolean hasNext() {
-		// Always true for kafka.. assume that a message can come in 
-		// TODO: if the connection is severed? perhaps we might want to return false?
-		// we could have a mode where this iterator will say it's done once it's caught up.
-		if (!running && readFullyAndExit) {
-			if (queue.size() > 0) {
-				return true;
-			} else {
-				return false;
-			}
-		} else {
-			return true;
+		while (consumerThread != null && consumerThread.isAlive() && running && inputQueue.size() == 0) {
+			Thread.onSpinWait();
 		}
+		return inputQueue.size() > 0;
 	}
 
 	@Override
-	public Map<String,Object> next() {
+	public DocumentData next() {
 		// In the background there is a thread polling and putting messages on the blocking queue
 		// This method blocks until something is available in the queue.
-		SolrDocument o = null;
+		DocumentData o = null;
 		while(o == null) {
 			// grab the next element in the queue to return.
 			try {
-				o = queue.poll(pollTimeout, TimeUnit.MILLISECONDS);
+				o = inputQueue.poll(pollTimeout, TimeUnit.MILLISECONDS);
 			} catch (InterruptedException e) {
 				// TODO Auto-generated catch block
 				log.error("Kafka Iterator Interrupted. ", e);
@@ -73,11 +70,25 @@ public class KafkaIterator implements Iterator<Map<String,Object>>, Runnable {
 		return o;
 	}
 
+	public void commitIndex(Map<TopicPartition, OffsetAndMetadata> commit) {
+		if (consumerThread.isAlive() && exitSemaphore.tryAcquire()) {
+			pendingCommits.add(commit);
+		  exitSemaphore.release();
+		} else {
+			consumer.commitSync(commit);
+		}
+	}
+
 	@Override
 	public void run() {
+		exitSemaphore.release();
+
 		// now, we need to consume and put on queue.
 		log.info("Staring Kafka consumer thread.");
 		while (running) {
+			for (Map<TopicPartition, OffsetAndMetadata> commit : pendingCommits) {
+				consumer.commitSync(commit);
+			}
 			if (!running) {
 				break;
 			}
@@ -93,7 +104,9 @@ public class KafkaIterator implements Iterator<Map<String,Object>>, Runnable {
 					// log.info("Consumer Record:({}, {}, {}, {}) Queue Size: ({})", record.key(), record.value(), record.partition(), record.offset(), queue.size());
 					// System.out.printf("Consumer Record:(%d, %s, %d, %d) Queue Size: (%d)\n");
 					try {
-						queue.put(record.value());
+						TopicPartition partInfo = new TopicPartition(record.topic(), record.partition());
+						OffsetAndMetadata offset = new OffsetAndMetadata(record.offset());
+						inputQueue.put(new DocumentData(record.value(), partInfo, offset));
 					} catch (InterruptedException e) {
 						running = false;
 						log.info("Kafka consumer thread interrupted.", e);
@@ -107,7 +120,14 @@ public class KafkaIterator implements Iterator<Map<String,Object>>, Runnable {
 					running = false;
 				}
 			}
-			
+		}
+		try {
+			exitSemaphore.acquire();
+		} catch (InterruptedException e) {
+			consumerThread.interrupt();
+		}
+		for (Map<TopicPartition, OffsetAndMetadata> commit : pendingCommits) {
+			consumer.commitSync(commit);
 		}
 		// TODO: when do we commit sync  and what do we do about the current queue size?  we should drain that
 		// lastly we still need to figure out how and when the consumer resets.
@@ -124,9 +144,11 @@ public class KafkaIterator implements Iterator<Map<String,Object>>, Runnable {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		consumerThread.interrupt();
+		if (consumerThread.isAlive()) {
+			consumerThread.interrupt();
+		}
 		// TODO: should I join the thread here or something?
 		// We should probably wait a second?  to let the previous poll call finish?
+		consumer.close();
 	}
-
 }
