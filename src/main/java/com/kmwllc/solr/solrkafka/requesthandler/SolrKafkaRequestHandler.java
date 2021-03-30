@@ -1,5 +1,7 @@
 package com.kmwllc.solr.solrkafka.requesthandler;
 
+import com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers.AsyncKafkaConsumerHandler;
+import com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers.KafkaConsumerHandler;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.common.SolrException;
@@ -23,7 +25,7 @@ import java.util.Properties;
 
 /**
  * A handler to start (or confirm the start of) the SolrKafka plugin. Creates a new {@link SolrDocumentImportHandler}
- * and {@link KafkaConsumerHandler}, and begins their processing in a separate thread (so that the request
+ * and {@link AsyncKafkaConsumerHandler}, and begins their processing in a separate thread (so that the request
  * doesn't depend on finishing the import).
  */
 public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrCoreAware, PluginInfoInitialized, PermissionNameProvider {
@@ -66,14 +68,18 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
 
     boolean fromBeginning = req.getParams().getBool("fromBeginning", false);
     boolean readFullyAndExit = req.getParams().getBool("exitAtEnd", false);
+    // TODO: should the type be configured as a path param or solrconfig value?
+    String consumerType = req.getParams().get("consumerType", "sync");
 
     if (importer != null) {
       importer.close();
-      KafkaConsumerHandler consumerHandler = new KafkaConsumerHandler(initProps, topic, fromBeginning, readFullyAndExit);
+      KafkaConsumerHandler consumerHandler = KafkaConsumerHandler.getInstance(consumerType,
+          initProps, topic, fromBeginning, readFullyAndExit);
       importer.setConsumerHandler(consumerHandler);
     }
     else {
-      KafkaConsumerHandler consumerHandler = new KafkaConsumerHandler(initProps, topic, fromBeginning, readFullyAndExit);
+      KafkaConsumerHandler consumerHandler = KafkaConsumerHandler.getInstance(consumerType,
+          initProps, topic, fromBeginning, readFullyAndExit);
       importer = new SolrDocumentImportHandler(core, consumerHandler);
     }
     SolrKafkaStatusRequestHandler.setHandler(importer);

@@ -1,5 +1,6 @@
 package com.kmwllc.solr.solrkafka.requesthandler;
 
+import com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers.KafkaConsumerHandler;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.logging.log4j.LogManager;
@@ -46,7 +47,7 @@ public class SolrDocumentImportHandler implements Runnable, AutoCloseable {
    * if this is being reused.
    */
   public void startThread() {
-    if (consumerHandler.exited()) {
+    if (consumerHandler.hasAlreadyRun()) {
       throw new IllegalStateException("Consumer handler has not been (re-)initialized");
     }
     thread = new Thread(this);
@@ -69,6 +70,9 @@ public class SolrDocumentImportHandler implements Runnable, AutoCloseable {
         if (!addedOffsets.isEmpty()) {
           consumerHandler.commitOffsets(addedOffsets);
           addedOffsets.clear();
+        }
+        if (!consumerHandler.isRunning()) {
+          consumerHandler.stop();
         }
         mapLock.release();
         log.info("Updated offsets");
