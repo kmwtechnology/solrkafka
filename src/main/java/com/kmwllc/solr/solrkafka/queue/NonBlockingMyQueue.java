@@ -4,16 +4,21 @@ import com.kmwllc.solr.solrkafka.requesthandler.DocumentData;
 
 import java.util.ArrayDeque;
 
-public class NonBlockingMyQueue implements MyQueue {
-  private final ArrayDeque<DocumentData> queue = new ArrayDeque<>();
+public class NonBlockingMyQueue<T> implements MyQueue<T> {
+  private final ArrayDeque<T> queue = new ArrayDeque<>();
 
   @Override
-  public void put(DocumentData item) {
+  public void put(T item) {
     queue.add(item);
   }
 
   @Override
-  public DocumentData get() throws InterruptedException {
+  public T poll() throws InterruptedException {
     return queue.remove();
+  }
+
+  @Override
+  public boolean isEmpty() {
+    return queue.isEmpty();
   }
 }

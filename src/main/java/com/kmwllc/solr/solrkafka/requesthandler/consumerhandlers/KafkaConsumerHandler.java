@@ -1,5 +1,6 @@
 package com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers;
 
+import com.kmwllc.solr.solrkafka.queue.MyQueue;
 import com.kmwllc.solr.solrkafka.requesthandler.DocumentData;
 import com.kmwllc.solr.solrkafka.serde.solr.SolrDocumentDeserializer;
 import org.apache.kafka.clients.consumer.CommitFailedException;
@@ -26,11 +27,11 @@ import java.util.concurrent.TimeUnit;
 public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   private static final Logger log = LogManager.getLogger(KafkaConsumerHandler.class);
   protected Consumer<String, SolrDocument> consumer;
-  protected final long pollTimeout = 1000;
+  protected static final long POLL_TIMEOUT = 1000;
   protected boolean readFullyAndExit;
   private boolean alreadyRun = false;
   protected volatile boolean running = false;
-  protected final LinkedBlockingQueue<DocumentData> inputQueue;
+  protected final MyQueue<DocumentData> inputQueue;
   protected final Semaphore consumerSemaphore = new Semaphore(1);
 
   /**
@@ -38,12 +39,12 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
    * @param topic The topic to listen on
    * @param fromBeginning true the topic should be read from the beginning
    * @param readFullyAndExit true if the consumer should exit after reaching the end of the topic's history
-   * @param inputQueueSize The size of the queue holding documents pending insertion into Solr
+   * @param queue The {@link MyQueue} to hold pulled documents in
    */
   protected KafkaConsumerHandler(Properties consumerProps, String topic, boolean fromBeginning, boolean readFullyAndExit,
-                                 int inputQueueSize) {
+                                 MyQueue<DocumentData> queue) {
     this.readFullyAndExit = readFullyAndExit;
-    this.inputQueue = new LinkedBlockingQueue<>(inputQueueSize);
+    this.inputQueue = queue;
     consumer = createConsumer(consumerProps);
     consumer.subscribe(Collections.singletonList(topic));
     if (fromBeginning) {
@@ -115,7 +116,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
     while(o == null) {
       // grab the next element in the queue to return.
       try {
-        o = inputQueue.poll(pollTimeout, TimeUnit.MILLISECONDS);
+        o = inputQueue.poll();
       } catch (InterruptedException e) {
         log.error("Kafka Iterator Interrupted. ", e);
         running = false;
@@ -135,7 +136,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   protected void loadSolrDocs() {
     // Locking here to prevent commits back to Kafka if it happens at the same time as this
     acquireSemaphore();
-    final ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
+    final ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(POLL_TIMEOUT);
     consumerSemaphore.release();
     // were we interrupted since the pollTimeout.. if so.. quick exit here.
     if (!running) {

@@ -113,6 +113,7 @@ public class SolrDocumentImportHandler implements Runnable, AutoCloseable {
   public void run() {
     log.info("Starting Kafka consumer");
 
+    // TODO: count # docs processed to make sure not double processing
     while (consumerHandler.hasNext()) {
       DocumentData doc = consumerHandler.next();
       AddUpdateCommand add = new AddUpdateCommand(buildReq(doc.getDoc()));

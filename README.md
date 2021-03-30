@@ -62,10 +62,15 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
 
 ```xml
     <lib dir="${solr.install.dir}/lib/" regex=".*\.jar"/>
-    <requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.requesthandler.SolrKafkaRequestHandler" startup="lazy"/>
+    <requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.requesthandler.SolrKafkaRequestHandler" startup="lazy">
+    <lst name="defaults">
+        <str name="incomingDataType">solr</str>
+        <str name="consumerType">sync</str>
+    </lst>
+    </requestHandler>
     <requestHandler name="/kafka/status" class="com.kmwllc.solr.solrkafka.requesthandler.SolrKafkaStatusRequestHandler"
-                    startup="lazy"/>
-    <requestHandler name="/kafka/status" class="com.kmwllc.solr.solrkafka.requesthandler.SolrKafkaStopRequestHandler"
+                        startup="lazy"/>
+    <requestHandler name="/kafka/stop" class="com.kmwllc.solr.solrkafka.requesthandler.SolrKafkaStopRequestHandler"
                     startup="lazy"/>
 ```
 

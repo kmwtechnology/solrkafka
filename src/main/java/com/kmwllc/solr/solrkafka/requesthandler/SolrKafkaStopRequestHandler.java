@@ -17,8 +17,12 @@ public class SolrKafkaStopRequestHandler extends RequestHandlerBase {
   public void handleRequestBody(SolrQueryRequest req, SolrQueryResponse rsp) throws Exception {
     ResponseBuilder rb = new ResponseBuilder(req, rsp, new ArrayList<>());
 
-    handler.close();
-    rsp.add("Status", "Stopping SolrKafka");
+    if (handler == null) {
+      rsp.add("Status", "SolrKafka not running");
+    } else {
+      handler.close();
+      rsp.add("Status", "Stopping SolrKafka");
+    }
   }
 
   @Override

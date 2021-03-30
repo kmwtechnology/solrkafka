@@ -1,5 +1,7 @@
 package com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers;
 
+import com.kmwllc.solr.solrkafka.queue.BlockingMyQueue;
+import com.kmwllc.solr.solrkafka.requesthandler.DocumentData;
 import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -26,12 +28,12 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 	 * @param consumerProps The {@link Properties} that should be used to create a {@link KafkaConsumer}.
 	 * @param topic The topic to pull from
 	 * @param fromBeginning If true, pull new entries from the beginning of the topic's history
-	 * @param readFullyAndExit If true, exits when no documents are received from Kafka after the {@link this#pollTimeout}
+	 * @param readFullyAndExit If true, exits when no documents are received from Kafka after the {@link KafkaConsumerHandler#POLL_TIMEOUT}
 	 *                         expires
 	 */
 	AsyncKafkaConsumerHandler(Properties consumerProps, String topic, boolean fromBeginning, boolean readFullyAndExit) {
 		// TODO: do we want to keep this capacity for the queue?
-		super(consumerProps, topic, fromBeginning, readFullyAndExit, 2000);
+		super(consumerProps, topic, fromBeginning, readFullyAndExit, new BlockingMyQueue<>(2000, POLL_TIMEOUT));
 		consumerThread = new Thread(this, "KafkaConsumerThread");
 		consumerThread.start();
 		running = true;
@@ -47,10 +49,10 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 	public boolean hasNext() {
 	  // Wait until the thread exits, the thread is preparing to exit, or there are documents in the queue
 		// to be processed
-		while (consumerThread != null && consumerThread.isAlive() && running && inputQueue.size() == 0) {
+		while (consumerThread != null && consumerThread.isAlive() && running && inputQueue.isEmpty()) {
 			Thread.onSpinWait();
 		}
-		return inputQueue.size() > 0;
+		return !inputQueue.isEmpty();
 	}
 
 	/**
@@ -106,7 +108,7 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 	}
 
 	/**
-	 * Forcefully stop the {@link KafkaConsumerHandler} if not already done. Waits {@link this#pollTimeout} + 1 second before
+	 * Forcefully stop the {@link KafkaConsumerHandler} if not already done. Waits {@link KafkaConsumerHandler#POLL_TIMEOUT} + 1 second before
 	 * interrupting the thread if it doesn't shut down before then. Closes the {@link Consumer} when finished.
 	 */
 	@Override
@@ -115,7 +117,7 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 		running = false;
 		try {
 			// TODO: something better than just waiting for the previous poll attempt to finish.
-			Thread.sleep(pollTimeout + 1000);
+			Thread.sleep(POLL_TIMEOUT + 1000);
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}

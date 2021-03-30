@@ -1,5 +1,6 @@
 package com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers;
 
+import com.kmwllc.solr.solrkafka.queue.NonBlockingMyQueue;
 import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
@@ -14,7 +15,7 @@ public class SyncKafkaConsumerHandler extends KafkaConsumerHandler {
 
   SyncKafkaConsumerHandler(Properties consumerProps, String topic, boolean fromBeginning, boolean readFullyAndExit) {
     // TODO: how large should we make the queue size?
-    super(consumerProps, topic, fromBeginning, readFullyAndExit, Integer.MAX_VALUE);
+    super(consumerProps, topic, fromBeginning, readFullyAndExit, new NonBlockingMyQueue<>());
     running = true;
   }
 
@@ -23,7 +24,7 @@ public class SyncKafkaConsumerHandler extends KafkaConsumerHandler {
     running = false;
     try {
       // TODO: something better than just waiting for the previous poll attempt to finish.
-      Thread.sleep(pollTimeout + 1000);
+      Thread.sleep(POLL_TIMEOUT + 1000);
     } catch (InterruptedException e) {
       e.printStackTrace();
     }
@@ -39,9 +40,9 @@ public class SyncKafkaConsumerHandler extends KafkaConsumerHandler {
 
   @Override
   public boolean hasNext() {
-    while (running && inputQueue.size() == 0) {
+    while (running && inputQueue.isEmpty()) {
       loadSolrDocs();
     }
-    return inputQueue.size() > 0;
+    return !inputQueue.isEmpty();
   }
 }

@@ -84,6 +84,8 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
           initProps, topic, fromBeginning, readFullyAndExit);
       importer = new SolrDocumentImportHandler(core, consumerHandler);
     }
+    SolrKafkaStatusRequestHandler.setHandler(importer);
+    SolrKafkaStopRequestHandler.setHandler(importer);
     importer.startThread();
     rsp.add("Status", "Started");
   }

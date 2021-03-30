@@ -5,26 +5,27 @@ import com.kmwllc.solr.solrkafka.requesthandler.DocumentData;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-public class BlockingMyQueue implements MyQueue {
-  private final LinkedBlockingQueue<DocumentData> queue;
-  private final int timeout;
+public class BlockingMyQueue<T> implements MyQueue<T> {
+  private final LinkedBlockingQueue<T> queue;
+  private final long timeout;
 
-  public BlockingMyQueue(int size, int timeout) {
+  public BlockingMyQueue(int size, long timeout) {
     queue = new LinkedBlockingQueue<>(size);
     this.timeout = timeout;
   }
 
   @Override
-  public DocumentData get() throws InterruptedException {
+  public T poll() throws InterruptedException {
     return queue.poll(timeout, TimeUnit.MILLISECONDS);
   }
 
   @Override
-  public void put(DocumentData item) {
-    try {
+  public void put(T item) throws InterruptedException {
     queue.put(item);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
+  }
+
+  @Override
+  public boolean isEmpty() {
+    return queue.isEmpty();
   }
 }
