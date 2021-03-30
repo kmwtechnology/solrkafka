@@ -5,6 +5,9 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrInputDocument;
 
+/**
+ * A POJO for linking a {@link SolrDocument} with its partition and offset.
+ */
 public class DocumentData {
   private final SolrDocument doc;
   private final TopicPartition part;

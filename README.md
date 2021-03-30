@@ -67,7 +67,7 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
                     startup="lazy"/>
 ```
 
-For tests, send this request to your solr collection to update the schema:
+For tests, send this body in a request to `POST <solr_endpoint>/solr/<collection>/schema` to update your Solr collection's schema:
 
 ```json
 {

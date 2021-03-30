@@ -7,8 +7,11 @@ import org.apache.solr.response.SolrQueryResponse;
 
 import java.util.ArrayList;
 
+/**
+ * A request handler for displaying the current status of the {@link SolrDocumentImportHandler}.
+ */
 public class SolrKafkaStatusRequestHandler extends RequestHandlerBase {
-  private static SolrKafkaRequestHandler handler;
+  private static SolrDocumentImportHandler handler;
 
   @Override
   public void handleRequestBody(SolrQueryRequest req, SolrQueryResponse rsp) throws Exception {
@@ -23,7 +26,7 @@ public class SolrKafkaStatusRequestHandler extends RequestHandlerBase {
     return "Request handler base";
   }
 
-  public static void setHandler(SolrKafkaRequestHandler handler) {
+  public static void setHandler(SolrDocumentImportHandler handler) {
     SolrKafkaStatusRequestHandler.handler = handler;
   }
 }
