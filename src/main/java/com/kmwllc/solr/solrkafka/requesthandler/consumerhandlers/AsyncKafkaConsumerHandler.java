@@ -63,7 +63,7 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 	 */
 	@Override
 	public void commitOffsets(Map<TopicPartition, OffsetAndMetadata> commit) {
-		// TODO: maybe get rid of this and let run() loop handle? losing offsets might not be important here
+		// TODO: maybe get rid of locking and let run() loop handle? losing offsets might not be important here
     // Attempt to add commits to the pendingCommits map if the thread is still running and not preparing
 		// to exit
 		if (consumerThread.isAlive() && consumerSemaphore.tryAcquire()) {

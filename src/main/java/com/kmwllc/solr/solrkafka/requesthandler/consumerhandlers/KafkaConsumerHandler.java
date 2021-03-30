@@ -1,7 +1,7 @@
 package com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers;
 
 import com.kmwllc.solr.solrkafka.requesthandler.DocumentData;
-import com.kmwllc.solr.solrkafka.serde.SolrDocumentDeserializer;
+import com.kmwllc.solr.solrkafka.serde.solr.SolrDocumentDeserializer;
 import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -110,6 +110,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
     // This method blocks until something is available in the queue.
     // TODO: not sure if we need to wait for documents to be returned anymore here, since they are
     //  guaranteed with hasNext()
+    // TODO: we could have multiple threads inserting into solr if that's a bottleneck
     DocumentData o = null;
     while(o == null) {
       // grab the next element in the queue to return.
@@ -132,6 +133,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
    * @return true if documents were added to {@link this#inputQueue}, false otherwise
    */
   protected void loadSolrDocs() {
+    // Locking here to prevent commits back to Kafka if it happens at the same time as this
     acquireSemaphore();
     final ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
     consumerSemaphore.release();
@@ -146,6 +148,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
         TopicPartition partInfo = new TopicPartition(record.topic(), record.partition());
         OffsetAndMetadata offset = new OffsetAndMetadata(record.offset() + 1);
         try {
+          // TODO: may not actually need blocking here
           inputQueue.put(new DocumentData(record.value(), partInfo, offset));
         } catch (InterruptedException e) {
           running = false;

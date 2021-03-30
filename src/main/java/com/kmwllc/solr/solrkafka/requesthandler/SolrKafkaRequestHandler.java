@@ -6,8 +6,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.params.CommonParams;
+import org.apache.solr.core.CloseHook;
 import org.apache.solr.core.PluginInfo;
 import org.apache.solr.core.SolrCore;
+import org.apache.solr.handler.NotFoundRequestHandler;
 import org.apache.solr.handler.RequestHandlerBase;
 import org.apache.solr.handler.component.ResponseBuilder;
 import org.apache.solr.request.SolrQueryRequest;
@@ -34,6 +36,8 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   private static final String topic = "testtopic";
   private SolrDocumentImportHandler importer;
   private final Properties initProps = new Properties();
+  private String incomingDataType = "solr";
+  private String consumerType = "sync";
 
   public SolrKafkaRequestHandler() {
     log.info("Kafka Consumer created.");
@@ -68,8 +72,6 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
 
     boolean fromBeginning = req.getParams().getBool("fromBeginning", false);
     boolean readFullyAndExit = req.getParams().getBool("exitAtEnd", false);
-    // TODO: should the type be configured as a path param or solrconfig value?
-    String consumerType = req.getParams().get("consumerType", "sync");
 
     if (importer != null) {
       importer.close();
@@ -82,7 +84,6 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
           initProps, topic, fromBeginning, readFullyAndExit);
       importer = new SolrDocumentImportHandler(core, consumerHandler);
     }
-    SolrKafkaStatusRequestHandler.setHandler(importer);
     importer.startThread();
     rsp.add("Status", "Started");
   }
@@ -105,12 +106,28 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   @Override
   public void init(PluginInfo info) {
     init(info.initArgs);
+    Object consumerType = info.initArgs.findRecursive("defaults", "consumerType");
+    Object incomingDataType = info.initArgs.findRecursive("defaults", "incomingDataType");
+
+    if (consumerType != null) {
+      this.consumerType = consumerType.toString();
+    }
+    if (incomingDataType != null) {
+      this.incomingDataType = incomingDataType.toString();
+    }
   }
 
   @Override
   public void inform(SolrCore core) {
     this.core = core;
-    // TODO: add core close hook
-    // immediately stop kafka and make sure stuff gets committed (or just shutdown immediately)
+    core.addCloseHook(new CloseHook() {
+      @Override
+      public void preClose(SolrCore core) {
+        importer.close();
+      }
+
+      @Override
+      public void postClose(SolrCore core) { }
+    });
   }
 }

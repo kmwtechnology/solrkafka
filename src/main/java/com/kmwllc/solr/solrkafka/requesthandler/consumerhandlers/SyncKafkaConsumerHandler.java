@@ -21,6 +21,12 @@ public class SyncKafkaConsumerHandler extends KafkaConsumerHandler {
   @Override
   public void stop() {
     running = false;
+    try {
+      // TODO: something better than just waiting for the previous poll attempt to finish.
+      Thread.sleep(pollTimeout + 1000);
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
     consumer.close();
   }
 

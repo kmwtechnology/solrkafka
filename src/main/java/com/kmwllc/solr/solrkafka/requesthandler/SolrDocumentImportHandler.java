@@ -30,7 +30,6 @@ public class SolrDocumentImportHandler implements Runnable, AutoCloseable {
   private final UpdateHandler updateHandler;
   private Thread thread;
   private KafkaConsumerHandler consumerHandler;
-  // TODO: would this be better as an atoimc reference?
   private final Semaphore mapLock = new Semaphore(1);
   private final Map<TopicPartition, OffsetAndMetadata> addedOffsets = new HashMap<>();
 

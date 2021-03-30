@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka.serde;
+package com.kmwllc.solr.solrkafka.serde.solr;
 
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
