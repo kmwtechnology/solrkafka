@@ -30,6 +30,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   private boolean alreadyRun = false;
   protected volatile boolean running = false;
   protected final MyQueue<DocumentData> inputQueue;
+  protected volatile boolean isClosed = false;
 
   /**
    * @param consumerProps The properties used to initialize the {@link Consumer}

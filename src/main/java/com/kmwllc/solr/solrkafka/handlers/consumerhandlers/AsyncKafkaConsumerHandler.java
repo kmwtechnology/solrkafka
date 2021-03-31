@@ -120,6 +120,9 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 		}
 		// TODO: should I join the thread here or something?
 		// We should probably wait a second?  to let the previous poll call finish?
-		consumer.close();
+		if (!isClosed) {
+			consumer.close();
+			isClosed = true;
+		}
 	}
 }

@@ -27,7 +27,10 @@ public class SyncKafkaConsumerHandler extends KafkaConsumerHandler {
     } catch (InterruptedException e) {
       e.printStackTrace();
     }
-    consumer.close();
+    if (!isClosed) {
+      consumer.close();
+      isClosed = true;
+    }
   }
 
   @Override

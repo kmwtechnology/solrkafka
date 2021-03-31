@@ -69,29 +69,48 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       return;
     }
 
-    if (importer != null && importer.isThreadAlive()) {
-      rsp.add("Status", "Request already running");
-      return;
-    }
-
-    boolean fromBeginning = req.getParams().getBool("fromBeginning", false);
-    boolean readFullyAndExit = req.getParams().getBool("exitAtEnd", false);
-
-    if (importer != null) {
-      importer.stop();
-    }
-    if (!consumerType.equalsIgnoreCase("simple")) {
-      KafkaConsumerHandler consumerHandler = KafkaConsumerHandler.getInstance(consumerType,
-          initProps, topic, fromBeginning, readFullyAndExit, incomingDataType);
-      importer = new SolrDocumentImportHandler(core, consumerHandler, commitInterval);
+    Object actionObj = req.getParams().get("action");
+    String action;
+    if (actionObj == null) {
+      action = "start";
     } else {
-      importer = new KafkaImporter(core, readFullyAndExit, fromBeginning, commitInterval);
+      action = actionObj.toString();
     }
 
-    SolrKafkaStatusRequestHandler.setHandler(importer);
-    SolrKafkaStopRequestHandler.setHandler(importer);
-    importer.startThread();
-    rsp.add("Status", "Started");
+    if (action.equalsIgnoreCase("start")) {
+      if (importer != null && importer.isThreadAlive()) {
+        rsp.add("Status", "Request already running");
+        return;
+      }
+
+      boolean fromBeginning = req.getParams().getBool("fromBeginning", false);
+      boolean readFullyAndExit = req.getParams().getBool("exitAtEnd", false);
+
+      if (importer != null) {
+        importer.stop();
+      }
+      if (!consumerType.equalsIgnoreCase("simple")) {
+        KafkaConsumerHandler consumerHandler = KafkaConsumerHandler.getInstance(consumerType,
+            initProps, topic, fromBeginning, readFullyAndExit, incomingDataType);
+        importer = new SolrDocumentImportHandler(core, consumerHandler, commitInterval);
+      } else {
+        importer = new KafkaImporter(core, readFullyAndExit, fromBeginning, commitInterval);
+      }
+
+      SolrKafkaStatusRequestHandler.setHandler(importer);
+      SolrKafkaStopRequestHandler.setHandler(importer);
+      importer.startThread();
+      rsp.add("Status", "Started");
+    } else if (action.equalsIgnoreCase("stop")) {
+      if (importer == null || !importer.isThreadAlive()) {
+        rsp.add("Status", "SolrKafka not running");
+      } else {
+        importer.stop();
+        rsp.add("Status", "Stopping SolrKafka");
+      }
+    } else if (action.equalsIgnoreCase("pause")) {
+
+    }
   }
 
   @Override

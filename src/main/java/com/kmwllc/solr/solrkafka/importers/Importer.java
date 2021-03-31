@@ -10,4 +10,6 @@ public interface Importer {
   void stop();
 
   Map<String, Long> getConsumerGroupLag();
+
+//  void pause();
 }

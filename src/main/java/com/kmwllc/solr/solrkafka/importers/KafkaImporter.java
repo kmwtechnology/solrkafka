@@ -109,8 +109,6 @@ public class KafkaImporter implements Runnable, Importer {
       Thread.sleep(pollTimeout.toMillis() * 2);
     } catch (InterruptedException ignored) {
     }
-    consumer.close();
-    isClosed = true;
     thread.interrupt();
   }
 
