@@ -98,18 +98,28 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       }
 
       SolrKafkaStatusRequestHandler.setHandler(importer);
-      SolrKafkaStopRequestHandler.setHandler(importer);
       importer.startThread();
       rsp.add("Status", "Started");
-    } else if (action.equalsIgnoreCase("stop")) {
-      if (importer == null || !importer.isThreadAlive()) {
-        rsp.add("Status", "SolrKafka not running");
-      } else {
-        importer.stop();
-        rsp.add("Status", "Stopping SolrKafka");
-      }
-    } else if (action.equalsIgnoreCase("pause")) {
+      return;
+    }
 
+    if (importer == null || !importer.isThreadAlive()) {
+      rsp.add("Status", "SolrKafka not running");
+      return;
+    }
+
+    if (action.equalsIgnoreCase("stop")) {
+      importer.stop();
+      rsp.add("Status", "Stopping SolrKafka");
+    } else if (action.equalsIgnoreCase("pause")) {
+      importer.pause();
+      rsp.add("Status", "Paused SolrKafka");
+    } else if (action.equalsIgnoreCase("resume")) {
+      importer.resume();
+      rsp.add("Status", "Resumed SolrKafka");
+    } else if (action.equalsIgnoreCase("rewind")) {
+      importer.rewind();
+      rsp.add("Status", "Rewound SolrKafka");
     }
   }
 

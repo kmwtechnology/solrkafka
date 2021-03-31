@@ -35,13 +35,13 @@ public class KafkaImporter implements Runnable, Importer {
 
   private final UpdateHandler updateHandler;
 
-  private final Consumer<String, SolrDocument> consumer;
+  private Consumer<String, SolrDocument> consumer;
 
   private final Duration pollTimeout = Duration.ofMillis(1000);
 
   private static final NamedList SOLR_REQUEST_ARGS = new NamedList();
 
-  private final Thread thread;
+  private Thread thread;
 
   private volatile boolean running = false;
 
@@ -51,7 +51,11 @@ public class KafkaImporter implements Runnable, Importer {
 
   private final TemporalAmount commitInterval;
 
-  private final Semaphore consumerLock = new Semaphore(1);
+  private volatile boolean paused = false;
+
+  private volatile boolean rewind;
+
+  private final Map<String, Long> consumerGroupLag = new HashMap<>();
 
   static {
     SOLR_REQUEST_ARGS.add("commitWithin", "1000");
@@ -64,9 +68,10 @@ public class KafkaImporter implements Runnable, Importer {
     this.updateHandler = core.getUpdateHandler();
     this.readFullyAndExit = readFullyAndExit;
     this.commitInterval = Duration.ofMillis(commitInterval);
-    this.consumer = createConsumer(fromBeginning);
+    rewind = fromBeginning;
     setUpdateHandlerCallback();
-    this.thread = new Thread(this);
+    this.consumer = createConsumer();
+    thread = new Thread(this);
   }
 
   /**
@@ -79,7 +84,7 @@ public class KafkaImporter implements Runnable, Importer {
         if (isClosed) {
           return;
         }
-        if (!running && thread.isAlive()) {
+        if (!running && thread != null && thread.isAlive()) {
           stop();
         }
       }
@@ -113,8 +118,23 @@ public class KafkaImporter implements Runnable, Importer {
   }
 
   @Override
+  public void pause() {
+    paused = true;
+  }
+
+  @Override
+  public void resume() {
+    paused = false;
+  }
+
+  @Override
+  public void rewind() {
+    rewind = true;
+  }
+
+  @Override
   public boolean isThreadAlive() {
-    return thread != null && thread.isAlive() && isClosed;
+    return thread != null && thread.isAlive() || !isClosed;
   }
 
   @Override
@@ -123,10 +143,22 @@ public class KafkaImporter implements Runnable, Importer {
 
     Instant prevCommit = Instant.now();
     while (running) {
-      getLock();
+      if (rewind) {
+        consumer.poll(0);
+        consumer.seekToBeginning(consumer.assignment());
+        rewind = false;
+      }
+
+      boolean localPaused = paused;
+
+      if (localPaused && consumer.paused().size() != consumer.assignment().size()) {
+        consumer.pause(consumer.assignment());
+      } else if (!localPaused && !consumer.paused().isEmpty()) {
+        consumer.resume(consumer.assignment());
+      }
+
       ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
-      consumerLock.release();
-      if (consumerRecords.count() > 0) {
+      if (consumerRecords.count() > 0 || localPaused) {
         log.info("Processing consumer records. {}", consumerRecords.count());
         for (ConsumerRecord<String, SolrDocument> record : consumerRecords) {
           SolrQueryRequest request = new LocalSolrQueryRequest(core, SOLR_REQUEST_ARGS);
@@ -141,9 +173,7 @@ public class KafkaImporter implements Runnable, Importer {
         }
 
         if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
-          getLock();
-          consumer.commitAsync();
-          consumerLock.release();
+          commit();
           prevCommit = Instant.now();
         }
       } else {
@@ -153,35 +183,26 @@ public class KafkaImporter implements Runnable, Importer {
         }
       }
     }
-    getLock();
-    consumer.commitAsync();
+    commit();
     consumer.close();
-    consumerLock.release();
     isClosed = true;
+  }
+
+  public void commit() {
+    consumer.commitAsync();
+    Map<TopicPartition, Long> ends = consumer.endOffsets(consumer.assignment());
+    Map<TopicPartition, OffsetAndMetadata> offsets = consumer.committed(consumer.assignment());
+    for (Map.Entry<TopicPartition, Long> entry : ends.entrySet()) {
+      consumerGroupLag.put(entry.getKey().toString(), entry.getValue() - offsets.get(entry.getKey()).offset());
+    }
   }
 
   @Override
   public Map<String, Long> getConsumerGroupLag() {
-    getLock();
-    Map<TopicPartition, Long> ends = consumer.endOffsets(consumer.assignment());
-    Map<TopicPartition, OffsetAndMetadata> offsets = consumer.committed(consumer.assignment());
-    consumerLock.release();
-    Map<String, Long> lag = new HashMap<>();
-    for (Map.Entry<TopicPartition, Long> entry : ends.entrySet()) {
-      lag.put(entry.getKey().toString(), entry.getValue() - offsets.get(entry.getKey()).offset());
-    }
-    return lag;
+    return consumerGroupLag;
   }
 
-  private void getLock() {
-    try {
-      consumerLock.acquire();
-    } catch (InterruptedException e) {
-      thread.interrupt();
-    }
-  }
-
-  private static Consumer<String, SolrDocument> createConsumer(boolean fromBeginning) {
+  private static Consumer<String, SolrDocument> createConsumer() {
     Properties props = new Properties();
     props.putIfAbsent(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
     props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, "SolrKafkaConsumer");
@@ -196,10 +217,6 @@ public class KafkaImporter implements Runnable, Importer {
     Thread.currentThread().setContextClassLoader(loader);
 
     consumer.subscribe(Collections.singletonList("testtopic"));
-    if (fromBeginning) {
-      consumer.poll(0);
-      consumer.seekToBeginning(consumer.assignment());
-    }
     return consumer;
   }
 }

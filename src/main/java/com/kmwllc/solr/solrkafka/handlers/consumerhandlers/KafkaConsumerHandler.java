@@ -3,7 +3,6 @@ package com.kmwllc.solr.solrkafka.handlers.consumerhandlers;
 import com.kmwllc.solr.solrkafka.datatypes.SerdeFactory;
 import com.kmwllc.solr.solrkafka.queue.MyQueue;
 import com.kmwllc.solr.solrkafka.datatypes.DocumentData;
-import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -20,7 +19,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.Semaphore;
 
 public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   private static final Logger log = LogManager.getLogger(KafkaConsumerHandler.class);
@@ -31,6 +29,9 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   protected volatile boolean running = false;
   protected final MyQueue<DocumentData> inputQueue;
   protected volatile boolean isClosed = false;
+  protected volatile boolean paused = false;
+  protected volatile boolean rewind = true;
+  private Map<String, Long> consumerGroupLag = new HashMap<>();
 
   /**
    * @param consumerProps The properties used to initialize the {@link Consumer}
@@ -43,12 +44,9 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
                                  MyQueue<DocumentData> queue, String dataType) {
     this.readFullyAndExit = readFullyAndExit;
     this.inputQueue = queue;
+    rewind = fromBeginning;
     consumer = createConsumer(consumerProps, dataType);
     consumer.subscribe(Collections.singletonList(topic));
-    if (fromBeginning) {
-      consumer.poll(0);
-      consumer.seekToBeginning(consumer.assignment());
-    }
   }
 
   /**
@@ -73,6 +71,18 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
       log.warn("Unknown type provided [{}], defaulting to sync", type);
     }
     return new SyncKafkaConsumerHandler(consumerProps, topic, fromBeginning, readFullyAndExit, dataType);
+  }
+
+  public void pause() {
+    paused = true;
+  }
+
+  public void resume() {
+    paused = false;
+  }
+
+  public void rewind() {
+    rewind = true;
   }
 
   /**
@@ -132,6 +142,18 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
    * @return true if documents were added to {@link this#inputQueue}, false otherwise
    */
   protected void loadSolrDocs() {
+    if (rewind) {
+      consumer.poll(0);
+      consumer.seekToBeginning(consumer.assignment());
+      rewind = false;
+    }
+
+    if (paused && consumer.paused().isEmpty()) {
+      consumer.pause(consumer.assignment());
+    } else if (!paused && !consumer.paused().isEmpty()) {
+      consumer.resume(consumer.assignment());
+    }
+
     // Locking here to prevent commits back to Kafka if it happens at the same time as this
     final ConsumerRecords<String, Map<String, Object>> consumerRecords = consumer.poll(POLL_TIMEOUT);
     // were we interrupted since the pollTimeout.. if so.. quick exit here.
@@ -139,7 +161,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
       log.info("Thread isn't running.. breaking out!");
       return;
     }
-    if (consumerRecords.count() > 0) {
+    if (consumerRecords.count() > 0 || paused) {
       log.info("Processing consumer records. {}", consumerRecords.count());
       for (ConsumerRecord<String, Map<String, Object>> record : consumerRecords) {
         TopicPartition partInfo = new TopicPartition(record.topic(), record.partition());
@@ -162,13 +184,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   }
 
   public Map<String, Long> getConsumerGroupLag() {
-    Map<TopicPartition, Long> ends = consumer.endOffsets(consumer.assignment());
-    Map<TopicPartition, OffsetAndMetadata> offsets = consumer.committed(consumer.assignment());
-    Map<String, Long> lag = new HashMap<>();
-    for (Map.Entry<TopicPartition, Long> entry : ends.entrySet()) {
-      lag.put(entry.getKey().toString(), entry.getValue() - offsets.get(entry.getKey()).offset());
-    }
-    return lag;
+    return consumerGroupLag;
   }
 
   /**
@@ -213,5 +229,11 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
         running = false;
       }
     });
+
+    Map<TopicPartition, Long> ends = consumer.endOffsets(consumer.assignment());
+    Map<TopicPartition, OffsetAndMetadata> offsets = consumer.committed(consumer.assignment());
+    for (Map.Entry<TopicPartition, Long> entry : ends.entrySet()) {
+      consumerGroupLag.put(entry.getKey().toString(), entry.getValue() - offsets.get(entry.getKey()).offset());
+    }
   }
 }

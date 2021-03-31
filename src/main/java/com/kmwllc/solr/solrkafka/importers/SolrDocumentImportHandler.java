@@ -58,6 +58,21 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
     thread.start();
   }
 
+  @Override
+  public void pause() {
+    consumerHandler.pause();
+  }
+
+  @Override
+  public void resume() {
+    consumerHandler.resume();
+  }
+
+  @Override
+  public void rewind() {
+    consumerHandler.rewind();
+  }
+
   /**
    * Sets the {@link UpdateHandler}'s callback. Used for committing offsets when the Solr index is committed.
    */

@@ -11,5 +11,9 @@ public interface Importer {
 
   Map<String, Long> getConsumerGroupLag();
 
-//  void pause();
+  void pause();
+
+  void resume();
+
+  void rewind();
 }

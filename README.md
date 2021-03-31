@@ -74,9 +74,6 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
 <requestHandler name="/kafka/status"
                 class="com.kmwllc.solr.solrkafka.handlers.requesthandlers.SolrKafkaStatusRequestHandler"
                 startup="lazy"/>
-<requestHandler name="/kafka/stop"
-                class="com.kmwllc.solr.solrkafka.handlers.requesthandlers.SolrKafkaStopRequestHandler"
-                startup="lazy"/>
 ```
 
 For tests, send this body in a request to `POST <solr_endpoint>/solr/<collection>/schema` to update your Solr collection's schema:
