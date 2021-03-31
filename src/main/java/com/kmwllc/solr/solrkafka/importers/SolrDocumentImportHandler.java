@@ -1,7 +1,7 @@
-package com.kmwllc.solr.solrkafka.requesthandler;
+package com.kmwllc.solr.solrkafka.importers;
 
 import com.kmwllc.solr.solrkafka.datatypes.DocumentData;
-import com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers.KafkaConsumerHandler;
+import com.kmwllc.solr.solrkafka.handlers.consumerhandlers.KafkaConsumerHandler;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.logging.log4j.LogManager;
@@ -17,6 +17,9 @@ import org.apache.solr.update.AddUpdateCommand;
 import org.apache.solr.update.UpdateHandler;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.TemporalAmount;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
@@ -31,11 +34,12 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
   private final UpdateHandler updateHandler;
   private Thread thread;
   private KafkaConsumerHandler consumerHandler;
-  private final Semaphore mapLock = new Semaphore(1);
   private final Map<TopicPartition, OffsetAndMetadata> addedOffsets = new HashMap<>();
+  private final TemporalAmount commitInterval;
 
-  public SolrDocumentImportHandler(SolrCore core, KafkaConsumerHandler consumerHandler) {
+  public SolrDocumentImportHandler(SolrCore core, KafkaConsumerHandler consumerHandler, long commitInterval) {
     this.core = core;
+    this.commitInterval = Duration.ofMillis(commitInterval);
     updateHandler = core.getUpdateHandler();
     setUpdateHandlerCallback();
     this.consumerHandler = consumerHandler;
@@ -61,21 +65,9 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
     updateHandler.registerCommitCallback(new SolrEventListener() {
       @Override
       public void postCommit() {
-        try {
-          mapLock.acquire();
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-        }
-
-        if (!addedOffsets.isEmpty()) {
-          consumerHandler.commitOffsets(addedOffsets);
-          addedOffsets.clear();
-        }
         if (!consumerHandler.isRunning()) {
           consumerHandler.stop();
         }
-        mapLock.release();
-        log.info("Updated offsets");
       }
 
       @Override
@@ -107,13 +99,14 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
 
   /**
    * Processes documents provided by the {@link KafkaConsumerHandler} and provides them to the {@link UpdateHandler}.
-   * Keeps track of committed indices for topics and provides them to {@link KafkaConsumerHandler#commitOffsets(Map)}
+   * Keeps track of committed indices for topics and provides them to {@link KafkaConsumerHandler#commitOffsets}
    * when the Solr index is committed.
    */
   @Override
   public void run() {
     log.info("Starting Kafka consumer");
 
+    Instant lastCommit = Instant.now();
     // TODO: count # docs processed to make sure not double processing
     while (consumerHandler.hasNext()) {
       DocumentData doc = consumerHandler.next();
@@ -121,19 +114,20 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
       add.solrDoc = doc.convertToInputDoc();
       try {
         updateHandler.addDoc(add);
-        try {
-          mapLock.acquire();
-        } catch (InterruptedException e) {
-          thread.interrupt();
-        }
-        addedOffsets.put(doc.getPart(), doc.getOffset());
-        mapLock.release();
       } catch (IOException | SolrException e) {
         log.error("Error occurred with Kafka index handler", e);
         return;
       }
+
+      addedOffsets.put(doc.getPart(), doc.getOffset());
+      if (lastCommit.plus(commitInterval).isBefore(Instant.now())) {
+        consumerHandler.commitOffsets(addedOffsets);
+        lastCommit = Instant.now();
+      }
     }
 
+    consumerHandler.commitOffsets(addedOffsets);
+    consumerHandler.stop();
     log.info("Kafka consumer finished");
   }
 

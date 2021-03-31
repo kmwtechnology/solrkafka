@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka.requesthandler;
+package com.kmwllc.solr.solrkafka.importers;
 
 import com.kmwllc.solr.solrkafka.datatypes.DocumentData;
 import com.kmwllc.solr.solrkafka.datatypes.solr.SolrDocumentDeserializer;
@@ -18,6 +18,8 @@ import org.apache.solr.update.UpdateHandler;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.TemporalAmount;
 import java.util.Collections;
 import java.util.Properties;
 import java.util.concurrent.Semaphore;
@@ -42,9 +44,9 @@ public class KafkaImporter implements Runnable, Importer {
 
   private final boolean readFullyAndExit;
 
-  private final Semaphore commitSemaphore = new Semaphore(1);
-
   private volatile boolean isClosed = false;
+
+  private final TemporalAmount commitInterval;
 
   static {
     SOLR_REQUEST_ARGS.add("commitWithin", "1000");
@@ -52,10 +54,11 @@ public class KafkaImporter implements Runnable, Importer {
     SOLR_REQUEST_ARGS.add("wt", "json");
   }
 
-  public KafkaImporter(SolrCore core, boolean readFullyAndExit, boolean fromBeginning) {
+  public KafkaImporter(SolrCore core, boolean readFullyAndExit, boolean fromBeginning, long commitInterval) {
     this.core = core;
     this.updateHandler = core.getUpdateHandler();
     this.readFullyAndExit = readFullyAndExit;
+    this.commitInterval = Duration.ofMillis(commitInterval);
     this.consumer = createConsumer(fromBeginning);
     setUpdateHandlerCallback();
     this.thread = new Thread(this);
@@ -71,10 +74,6 @@ public class KafkaImporter implements Runnable, Importer {
         if (isClosed) {
           return;
         }
-
-        acquireSemaphore();
-        consumer.commitSync();
-        commitSemaphore.release();
         if (!running && thread.isAlive()) {
           stop();
         }
@@ -101,8 +100,13 @@ public class KafkaImporter implements Runnable, Importer {
   @Override
   public void stop() {
     running = false;
-    isClosed = true;
+    try {
+      Thread.sleep(pollTimeout.toMillis() * 2);
+    } catch (InterruptedException ignored) {
+    }
     consumer.close();
+    isClosed = true;
+    thread.interrupt();
   }
 
   @Override
@@ -114,12 +118,9 @@ public class KafkaImporter implements Runnable, Importer {
   public void run() {
     log.info("Starting Kafka consumer");
 
+    Instant prevCommit = Instant.now();
     while (running) {
-
-      // TODO: could wrap the poll and add in a loop that breaks after a configurable # of docs, or a timeout
-      acquireSemaphore();
       ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
-      commitSemaphore.release();
       if (consumerRecords.count() > 0) {
         log.info("Processing consumer records. {}", consumerRecords.count());
         for (ConsumerRecord<String, SolrDocument> record : consumerRecords) {
@@ -134,24 +135,20 @@ public class KafkaImporter implements Runnable, Importer {
           }
         }
 
-        // TODO: to support a transactional run mode, create a semaphore here
-        // register a commit callback with a reference to the semaphore: updateHandler.registerCommitCallback
-        // block until callback releases semaphore
-
+        if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
+          consumer.commitAsync();
+          prevCommit = Instant.now();
+        }
       } else {
+        // TODO: remove once stop() is working
         if (readFullyAndExit) {
           running = false;
         }
       }
     }
-  }
-
-  private void acquireSemaphore() {
-    try {
-      commitSemaphore.acquire();
-    } catch (InterruptedException e) {
-      thread.interrupt();
-    }
+    consumer.commitAsync();
+    consumer.close();
+    isClosed = true;
   }
 
   private static Consumer<String, SolrDocument> createConsumer(boolean fromBeginning) {

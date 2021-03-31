@@ -1,7 +1,10 @@
-package com.kmwllc.solr.solrkafka.requesthandler;
+package com.kmwllc.solr.solrkafka.handlers.requesthandlers;
 
-import com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers.AsyncKafkaConsumerHandler;
-import com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers.KafkaConsumerHandler;
+import com.kmwllc.solr.solrkafka.importers.Importer;
+import com.kmwllc.solr.solrkafka.importers.KafkaImporter;
+import com.kmwllc.solr.solrkafka.importers.SolrDocumentImportHandler;
+import com.kmwllc.solr.solrkafka.handlers.consumerhandlers.AsyncKafkaConsumerHandler;
+import com.kmwllc.solr.solrkafka.handlers.consumerhandlers.KafkaConsumerHandler;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.common.SolrException;
@@ -9,7 +12,6 @@ import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.core.CloseHook;
 import org.apache.solr.core.PluginInfo;
 import org.apache.solr.core.SolrCore;
-import org.apache.solr.handler.NotFoundRequestHandler;
 import org.apache.solr.handler.RequestHandlerBase;
 import org.apache.solr.handler.component.ResponseBuilder;
 import org.apache.solr.request.SolrQueryRequest;
@@ -38,10 +40,12 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   private final Properties initProps = new Properties();
   private String incomingDataType = "solr";
   private String consumerType = "sync";
+  private long commitInterval = 5000;
 
   public SolrKafkaRequestHandler() {
     log.info("Kafka Consumer created.");
   }
+  // TODO: support deletes, updates, ... at some point
 
   /**
    * Handle the request to start the Kafka consumer by ensuring no {@link CircuitBreaker}s have been tripped. If
@@ -72,18 +76,16 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
 
     boolean fromBeginning = req.getParams().getBool("fromBeginning", false);
     boolean readFullyAndExit = req.getParams().getBool("exitAtEnd", false);
-    boolean simple = req.getParams().getBool("simple", false);
 
     if (importer != null) {
       importer.stop();
     }
-    if (!simple) {
+    if (!consumerType.equalsIgnoreCase("simple")) {
       KafkaConsumerHandler consumerHandler = KafkaConsumerHandler.getInstance(consumerType,
           initProps, topic, fromBeginning, readFullyAndExit, incomingDataType);
-//      importer.setConsumerHandler(consumerHandler);
-      importer = new SolrDocumentImportHandler(core, consumerHandler);
+      importer = new SolrDocumentImportHandler(core, consumerHandler, commitInterval);
     } else {
-      importer = new KafkaImporter(core, readFullyAndExit, fromBeginning);
+      importer = new KafkaImporter(core, readFullyAndExit, fromBeginning, commitInterval);
     }
 
     SolrKafkaStatusRequestHandler.setHandler(importer);
@@ -110,8 +112,12 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   @Override
   public void init(PluginInfo info) {
     init(info.initArgs);
+
+    // TODO: determine if leader, only add documents if this is leader (probably)
+
     Object consumerType = info.initArgs.findRecursive("defaults", "consumerType");
     Object incomingDataType = info.initArgs.findRecursive("defaults", "incomingDataType");
+    Object commitInterval = info.initArgs.findRecursive("defaults", "commitInterval");
 
     if (consumerType != null) {
       this.consumerType = consumerType.toString();
@@ -119,11 +125,14 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     if (incomingDataType != null) {
       this.incomingDataType = incomingDataType.toString();
     }
+    if (commitInterval != null) {
+      this.commitInterval = Long.parseLong(commitInterval.toString());
+    }
   }
 
   @Override
   public void inform(SolrCore core) {
-    // TODO: can this get updated in the middle of a request
+    // TODO: can this get updated in the middle of a request (can get called a few times, when reload?)
     this.core = core;
     core.addCloseHook(new CloseHook() {
       @Override

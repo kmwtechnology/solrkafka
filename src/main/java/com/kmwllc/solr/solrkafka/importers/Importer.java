@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka.requesthandler;
+package com.kmwllc.solr.solrkafka.importers;
 
 public interface Importer {
   void startThread();

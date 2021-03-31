@@ -1,7 +1,6 @@
-package com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers;
+package com.kmwllc.solr.solrkafka.handlers.consumerhandlers;
 
 import com.kmwllc.solr.solrkafka.queue.NonBlockingMyQueue;
-import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.logging.log4j.LogManager;
@@ -33,9 +32,7 @@ public class SyncKafkaConsumerHandler extends KafkaConsumerHandler {
 
   @Override
   public void commitOffsets(Map<TopicPartition, OffsetAndMetadata> commit) {
-    acquireSemaphore();
     commitToConsumer(commit);
-    consumerSemaphore.release();
   }
 
   @Override

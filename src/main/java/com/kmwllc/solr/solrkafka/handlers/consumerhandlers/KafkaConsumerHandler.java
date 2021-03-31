@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers;
+package com.kmwllc.solr.solrkafka.handlers.consumerhandlers;
 
 import com.kmwllc.solr.solrkafka.datatypes.SerdeFactory;
 import com.kmwllc.solr.solrkafka.queue.MyQueue;
@@ -29,7 +29,6 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   private boolean alreadyRun = false;
   protected volatile boolean running = false;
   protected final MyQueue<DocumentData> inputQueue;
-  protected final Semaphore consumerSemaphore = new Semaphore(1);
 
   /**
    * @param consumerProps The properties used to initialize the {@link Consumer}
@@ -132,9 +131,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
    */
   protected void loadSolrDocs() {
     // Locking here to prevent commits back to Kafka if it happens at the same time as this
-    acquireSemaphore();
     final ConsumerRecords<String, Map<String, Object>> consumerRecords = consumer.poll(POLL_TIMEOUT);
-    consumerSemaphore.release();
     // were we interrupted since the pollTimeout.. if so.. quick exit here.
     if (!running) {
       log.info("Thread isn't running.. breaking out!");
@@ -146,7 +143,6 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
         TopicPartition partInfo = new TopicPartition(record.topic(), record.partition());
         OffsetAndMetadata offset = new OffsetAndMetadata(record.offset() + 1);
         try {
-          // TODO: may not actually need blocking here
           inputQueue.put(new DocumentData(record.value(), partInfo, offset));
         } catch (InterruptedException e) {
           running = false;
@@ -196,22 +192,14 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
     return consumer;
   }
 
-  protected void acquireSemaphore() {
-    try {
-      consumerSemaphore.acquire();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
-  }
-
   protected void commitToConsumer(Map<TopicPartition, OffsetAndMetadata> commit) {
-    try {
-      consumer.commitSync(commit);
-    } catch (CommitFailedException e) {
-      // TODO: what should be done when a CommitFailedException occurs?
-      // Seems to be happening because the max Kafka poll interval was exceeded
-      log.error("Error occurred with index commit", e);
-      running = false;
-    }
+    consumer.commitAsync(commit, (offsets, e) -> {
+      if (e != null) {
+        // TODO: what should be done when a CommitFailedException occurs?
+        // Seems to be happening because the max Kafka poll interval was exceeded
+        log.error("Error occurred with index commit", e);
+        running = false;
+      }
+    });
   }
 }

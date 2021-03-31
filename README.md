@@ -61,17 +61,22 @@ Copy produced jar and kafka-clients jar at root of project to lib dir.
 Copy the following into the solrconfig.xml file, and make sure the `openSearcher` argument of `autoCommit` is set to true.
 
 ```xml
-    <lib dir="${solr.install.dir}/lib/" regex=".*\.jar"/>
-    <requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.requesthandler.SolrKafkaRequestHandler" startup="lazy">
-    <lst name="defaults">
-        <str name="incomingDataType">solr</str>
-        <str name="consumerType">sync</str>
-    </lst>
-    </requestHandler>
-    <requestHandler name="/kafka/status" class="com.kmwllc.solr.solrkafka.requesthandler.SolrKafkaStatusRequestHandler"
-                        startup="lazy"/>
-    <requestHandler name="/kafka/stop" class="com.kmwllc.solr.solrkafka.requesthandler.SolrKafkaStopRequestHandler"
-                    startup="lazy"/>
+
+<lib dir="${solr.install.dir}/lib/" regex=".*\.jar"/>
+<requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.handlers.requesthandlers.SolrKafkaRequestHandler"
+                startup="lazy">
+<lst name="defaults">
+    <str name="incomingDataType">solr</str>
+    <str name="consumerType">sync</str>
+    <str name="commitInterval">5000</str>
+</lst>
+</requestHandler>
+<requestHandler name="/kafka/status"
+                class="com.kmwllc.solr.solrkafka.handlers.requesthandlers.SolrKafkaStatusRequestHandler"
+                startup="lazy"/>
+<requestHandler name="/kafka/stop"
+                class="com.kmwllc.solr.solrkafka.handlers.requesthandlers.SolrKafkaStopRequestHandler"
+                startup="lazy"/>
 ```
 
 For tests, send this body in a request to `POST <solr_endpoint>/solr/<collection>/schema` to update your Solr collection's schema:

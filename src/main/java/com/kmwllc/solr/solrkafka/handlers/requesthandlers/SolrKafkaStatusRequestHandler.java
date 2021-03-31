@@ -1,5 +1,7 @@
-package com.kmwllc.solr.solrkafka.requesthandler;
+package com.kmwllc.solr.solrkafka.handlers.requesthandlers;
 
+import com.kmwllc.solr.solrkafka.importers.Importer;
+import com.kmwllc.solr.solrkafka.importers.SolrDocumentImportHandler;
 import org.apache.solr.handler.RequestHandlerBase;
 import org.apache.solr.handler.component.ResponseBuilder;
 import org.apache.solr.request.SolrQueryRequest;
@@ -17,6 +19,7 @@ public class SolrKafkaStatusRequestHandler extends RequestHandlerBase {
   public void handleRequestBody(SolrQueryRequest req, SolrQueryResponse rsp) throws Exception {
     ResponseBuilder rb = new ResponseBuilder(req, rsp, new ArrayList<>());
 
+    // TODO: get consumer group lag per partition (max offset of partition and current offset of consumer)
     rsp.add("Status",
         "SolrKafka is " + (handler != null && handler.isThreadAlive() ? "" : "not ") + "running");
   }

@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers;
+package com.kmwllc.solr.solrkafka.handlers.consumerhandlers;
 
 import com.kmwllc.solr.solrkafka.queue.BlockingMyQueue;
 import org.apache.kafka.clients.consumer.Consumer;
@@ -65,19 +65,16 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 	 */
 	@Override
 	public void commitOffsets(Map<TopicPartition, OffsetAndMetadata> commit) {
-		// TODO: maybe get rid of locking and let run() loop handle? losing offsets might not be important here
-    // Attempt to add commits to the pendingCommits map if the thread is still running and not preparing
-		// to exit
-		if (consumerThread.isAlive() && consumerSemaphore.tryAcquire()) {
-			pendingCommits.putAll(commit);
-		  consumerSemaphore.release();
-		} else {
-			// Consumer thread is preparing to exit (or already exited), wait until it is confirmed
-			while (consumerThread.isAlive()) {
-				Thread.onSpinWait();
-			}
-			commitToConsumer(commit);
+    // Attempt to add commits to the pendingCommits map if the thread is still running
+    pendingCommits.putAll(commit);
+    if (running) {
+    	return;
 		}
+
+    while (consumerThread.isAlive()) {
+    	Thread.onSpinWait();
+		}
+    commitToConsumer(pendingCommits);
 	}
 
 	/**
@@ -89,9 +86,10 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 		log.info("Staring Kafka consumer thread.");
 		// Commit any pending commits
 		while (running) {
-			if (!pendingCommits.isEmpty()) {
-			  commitToConsumer(pendingCommits);
-				pendingCommits.clear();
+			// Not afraid to lose the occasional commit because it will be committed in the future in normal operation
+		  if (!pendingCommits.isEmpty()) {
+		  	commitToConsumer(pendingCommits);
+		  	pendingCommits.clear();
 			}
 			if (!running) {
 				break;
@@ -99,10 +97,6 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 			loadSolrDocs();
 		}
 
-		// Begin to shut down. Locks are not released to prevent commits back to Kafka from being lost
-    acquireSemaphore();
-		commitToConsumer(pendingCommits);
-		pendingCommits.clear();
 		// lastly we still need to figure out how and when the consumer resets.
 		log.info("Kafka Consumer Thread Exiting.");
 	}
