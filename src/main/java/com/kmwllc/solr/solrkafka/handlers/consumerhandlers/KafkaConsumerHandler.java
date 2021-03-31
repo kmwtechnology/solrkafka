@@ -16,6 +16,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Properties;
@@ -157,6 +158,16 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
         running = false;
       }
     }
+  }
+
+  public Map<String, Long> getConsumerGroupLag() {
+    Map<TopicPartition, Long> ends = consumer.endOffsets(consumer.assignment());
+    Map<TopicPartition, OffsetAndMetadata> offsets = consumer.committed(consumer.assignment());
+    Map<String, Long> lag = new HashMap<>();
+    for (Map.Entry<TopicPartition, Long> entry : ends.entrySet()) {
+      lag.put(entry.getKey().toString(), entry.getValue() - offsets.get(entry.getKey()).offset());
+    }
+    return lag;
   }
 
   /**

@@ -8,6 +8,7 @@ import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
 
 import java.util.ArrayList;
+import java.util.Map;
 
 /**
  * A request handler for displaying the current status of the {@link SolrDocumentImportHandler}.
@@ -22,6 +23,11 @@ public class SolrKafkaStatusRequestHandler extends RequestHandlerBase {
     // TODO: get consumer group lag per partition (max offset of partition and current offset of consumer)
     rsp.add("Status",
         "SolrKafka is " + (handler != null && handler.isThreadAlive() ? "" : "not ") + "running");
+    Map<String, Long> consumerGroupLag = null;
+    if (handler != null && handler.isThreadAlive()) {
+      consumerGroupLag = handler.getConsumerGroupLag();
+    }
+    rsp.add("ConsumerGroupLag", consumerGroupLag);
   }
 
   @Override

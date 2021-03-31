@@ -3,6 +3,7 @@ package com.kmwllc.solr.solrkafka.importers;
 import com.kmwllc.solr.solrkafka.datatypes.DocumentData;
 import com.kmwllc.solr.solrkafka.datatypes.solr.SolrDocumentDeserializer;
 import org.apache.kafka.clients.consumer.*;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -21,6 +22,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.TemporalAmount;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Semaphore;
 
@@ -47,6 +50,8 @@ public class KafkaImporter implements Runnable, Importer {
   private volatile boolean isClosed = false;
 
   private final TemporalAmount commitInterval;
+
+  private final Semaphore consumerLock = new Semaphore(1);
 
   static {
     SOLR_REQUEST_ARGS.add("commitWithin", "1000");
@@ -111,7 +116,7 @@ public class KafkaImporter implements Runnable, Importer {
 
   @Override
   public boolean isThreadAlive() {
-    return thread != null && thread.isAlive();
+    return thread != null && thread.isAlive() && isClosed;
   }
 
   @Override
@@ -120,7 +125,9 @@ public class KafkaImporter implements Runnable, Importer {
 
     Instant prevCommit = Instant.now();
     while (running) {
+      getLock();
       ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
+      consumerLock.release();
       if (consumerRecords.count() > 0) {
         log.info("Processing consumer records. {}", consumerRecords.count());
         for (ConsumerRecord<String, SolrDocument> record : consumerRecords) {
@@ -136,7 +143,9 @@ public class KafkaImporter implements Runnable, Importer {
         }
 
         if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
+          getLock();
           consumer.commitAsync();
+          consumerLock.release();
           prevCommit = Instant.now();
         }
       } else {
@@ -146,9 +155,32 @@ public class KafkaImporter implements Runnable, Importer {
         }
       }
     }
+    getLock();
     consumer.commitAsync();
     consumer.close();
+    consumerLock.release();
     isClosed = true;
+  }
+
+  @Override
+  public Map<String, Long> getConsumerGroupLag() {
+    getLock();
+    Map<TopicPartition, Long> ends = consumer.endOffsets(consumer.assignment());
+    Map<TopicPartition, OffsetAndMetadata> offsets = consumer.committed(consumer.assignment());
+    consumerLock.release();
+    Map<String, Long> lag = new HashMap<>();
+    for (Map.Entry<TopicPartition, Long> entry : ends.entrySet()) {
+      lag.put(entry.getKey().toString(), entry.getValue() - offsets.get(entry.getKey()).offset());
+    }
+    return lag;
+  }
+
+  private void getLock() {
+    try {
+      consumerLock.acquire();
+    } catch (InterruptedException e) {
+      thread.interrupt();
+    }
   }
 
   private static Consumer<String, SolrDocument> createConsumer(boolean fromBeginning) {

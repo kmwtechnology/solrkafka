@@ -131,6 +131,11 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
     log.info("Kafka consumer finished");
   }
 
+  @Override
+  public Map<String, Long> getConsumerGroupLag() {
+    return consumerHandler.getConsumerGroupLag();
+  }
+
   /**
    * Builds a {@link SolrQueryRequest} to be passed to {@link UpdateHandler#addDoc(AddUpdateCommand)}.
    * 
