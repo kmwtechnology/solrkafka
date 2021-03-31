@@ -1,8 +1,6 @@
 package com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers;
 
 import com.kmwllc.solr.solrkafka.queue.BlockingMyQueue;
-import com.kmwllc.solr.solrkafka.requesthandler.DocumentData;
-import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
@@ -31,9 +29,11 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 	 * @param readFullyAndExit If true, exits when no documents are received from Kafka after the {@link KafkaConsumerHandler#POLL_TIMEOUT}
 	 *                         expires
 	 */
-	AsyncKafkaConsumerHandler(Properties consumerProps, String topic, boolean fromBeginning, boolean readFullyAndExit) {
+	AsyncKafkaConsumerHandler(Properties consumerProps, String topic, boolean fromBeginning, boolean readFullyAndExit,
+														String dataType) {
 		// TODO: do we want to keep this capacity for the queue?
-		super(consumerProps, topic, fromBeginning, readFullyAndExit, new BlockingMyQueue<>(2000, POLL_TIMEOUT));
+		super(consumerProps, topic, fromBeginning, readFullyAndExit, new BlockingMyQueue<>(2000, POLL_TIMEOUT),
+				dataType);
 		consumerThread = new Thread(this, "KafkaConsumerThread");
 		consumerThread.start();
 		running = true;

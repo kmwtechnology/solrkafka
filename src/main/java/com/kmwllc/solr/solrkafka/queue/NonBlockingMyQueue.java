@@ -1,7 +1,5 @@
 package com.kmwllc.solr.solrkafka.queue;
 
-import com.kmwllc.solr.solrkafka.requesthandler.DocumentData;
-
 import java.util.ArrayDeque;
 
 public class NonBlockingMyQueue<T> implements MyQueue<T> {

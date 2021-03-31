@@ -1,5 +1,6 @@
 package com.kmwllc.solr.solrkafka.requesthandler;
 
+import com.kmwllc.solr.solrkafka.datatypes.DocumentData;
 import com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers.KafkaConsumerHandler;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
@@ -23,7 +24,7 @@ import java.util.concurrent.Semaphore;
 /**
  * Handles inserting documents returned by the {@link KafkaConsumerHandler} into Solr.
  */
-public class SolrDocumentImportHandler implements Runnable, AutoCloseable {
+public class SolrDocumentImportHandler implements Runnable, Importer {
   private static final Logger log = LogManager.getLogger(SolrDocumentImportHandler.class);
 
   private final SolrCore core;
@@ -97,7 +98,7 @@ public class SolrDocumentImportHandler implements Runnable, AutoCloseable {
    * Stops the consumer handler and interrupts this runnable thread if it's still running.
    */
   @Override
-  public void close() {
+  public void stop() {
     consumerHandler.stop();
     if (thread != null && thread.isAlive()) {
       thread.interrupt();

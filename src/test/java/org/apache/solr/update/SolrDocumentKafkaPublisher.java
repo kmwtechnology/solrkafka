@@ -6,7 +6,7 @@ import org.apache.solr.common.SolrDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.kmwllc.solr.solrkafka.serde.solr.SolrDocumentSerializer;
+import com.kmwllc.solr.solrkafka.datatypes.solr.SolrDocumentSerializer;
 
 import java.lang.invoke.MethodHandles;
 import java.util.Date;

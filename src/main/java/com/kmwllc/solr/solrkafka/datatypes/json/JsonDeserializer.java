@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka.serde.json;
+package com.kmwllc.solr.solrkafka.datatypes.json;
 
 
 import com.fasterxml.jackson.core.type.TypeReference;

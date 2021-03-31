@@ -1,8 +1,8 @@
 package com.kmwllc.solr.solrkafka.requesthandler.consumerhandlers;
 
+import com.kmwllc.solr.solrkafka.datatypes.SerdeFactory;
 import com.kmwllc.solr.solrkafka.queue.MyQueue;
-import com.kmwllc.solr.solrkafka.requesthandler.DocumentData;
-import com.kmwllc.solr.solrkafka.serde.solr.SolrDocumentDeserializer;
+import com.kmwllc.solr.solrkafka.datatypes.DocumentData;
 import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -14,19 +14,16 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.solr.common.SolrDocument;
 
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 
 public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   private static final Logger log = LogManager.getLogger(KafkaConsumerHandler.class);
-  protected Consumer<String, SolrDocument> consumer;
+  protected Consumer<String, Map<String, Object>> consumer;
   protected static final long POLL_TIMEOUT = 1000;
   protected boolean readFullyAndExit;
   private boolean alreadyRun = false;
@@ -42,10 +39,10 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
    * @param queue The {@link MyQueue} to hold pulled documents in
    */
   protected KafkaConsumerHandler(Properties consumerProps, String topic, boolean fromBeginning, boolean readFullyAndExit,
-                                 MyQueue<DocumentData> queue) {
+                                 MyQueue<DocumentData> queue, String dataType) {
     this.readFullyAndExit = readFullyAndExit;
     this.inputQueue = queue;
-    consumer = createConsumer(consumerProps);
+    consumer = createConsumer(consumerProps, dataType);
     consumer.subscribe(Collections.singletonList(topic));
     if (fromBeginning) {
       consumer.poll(0);
@@ -64,17 +61,17 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
    * @return a new {@link KafkaConsumerHandler} instance
    */
   public static KafkaConsumerHandler getInstance(String type, Properties consumerProps, String topic,
-                                                 boolean fromBeginning, boolean readFullyAndExit) {
+                                                 boolean fromBeginning, boolean readFullyAndExit, String dataType) {
     if (type == null || type.isBlank()) {
       log.info("No type provided, defaulting to sync");
-      return new SyncKafkaConsumerHandler(consumerProps, topic, fromBeginning, readFullyAndExit);
+      return new SyncKafkaConsumerHandler(consumerProps, topic, fromBeginning, readFullyAndExit, dataType);
     } else if (type.equalsIgnoreCase("async") || type.equalsIgnoreCase("asynchronous")) {
-      return new AsyncKafkaConsumerHandler(consumerProps, topic, fromBeginning, readFullyAndExit);
+      return new AsyncKafkaConsumerHandler(consumerProps, topic, fromBeginning, readFullyAndExit, dataType);
     }
     if (!type.equalsIgnoreCase("sync") && !type.equalsIgnoreCase("synchronous")) {
       log.warn("Unknown type provided [{}], defaulting to sync", type);
     }
-    return new SyncKafkaConsumerHandler(consumerProps, topic, fromBeginning, readFullyAndExit);
+    return new SyncKafkaConsumerHandler(consumerProps, topic, fromBeginning, readFullyAndExit, dataType);
   }
 
   /**
@@ -136,7 +133,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   protected void loadSolrDocs() {
     // Locking here to prevent commits back to Kafka if it happens at the same time as this
     acquireSemaphore();
-    final ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(POLL_TIMEOUT);
+    final ConsumerRecords<String, Map<String, Object>> consumerRecords = consumer.poll(POLL_TIMEOUT);
     consumerSemaphore.release();
     // were we interrupted since the pollTimeout.. if so.. quick exit here.
     if (!running) {
@@ -145,7 +142,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
     }
     if (consumerRecords.count() > 0) {
       log.info("Processing consumer records. {}", consumerRecords.count());
-      for (ConsumerRecord<String, SolrDocument> record : consumerRecords) {
+      for (ConsumerRecord<String, Map<String, Object>> record : consumerRecords) {
         TopicPartition partInfo = new TopicPartition(record.topic(), record.partition());
         OffsetAndMetadata offset = new OffsetAndMetadata(record.offset() + 1);
         try {
@@ -173,7 +170,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
    * @param props The properties to be used when creating the consumer
    * @return an initialized consumer
    */
-  private Consumer<String, SolrDocument> createConsumer(Properties props) {
+  private Consumer<String, Map<String, Object>> createConsumer(Properties props, String dataType) {
     if (consumer != null) {
       consumer.close();
     }
@@ -183,7 +180,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
     String consumerGroupId = "SolrKafkaConsumer";
     props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, consumerGroupId);
     props.putIfAbsent(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-    props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SolrDocumentDeserializer.class.getName());
+    props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SerdeFactory.getDeserializer(dataType).getName());
     // How do we force the offset ?
     props.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
     // This value must be larger than the autocommit interval used for Solr
@@ -194,7 +191,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
     ClassLoader loader = Thread.currentThread().getContextClassLoader();
     Thread.currentThread().setContextClassLoader(null);
     // Create the consumer using props.
-    KafkaConsumer<String, SolrDocument> consumer = new KafkaConsumer<>(props);
+    KafkaConsumer<String, Map<String, Object>> consumer = new KafkaConsumer<>(props);
     Thread.currentThread().setContextClassLoader(loader);
     return consumer;
   }

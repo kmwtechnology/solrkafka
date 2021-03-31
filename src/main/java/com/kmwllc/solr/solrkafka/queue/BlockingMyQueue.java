@@ -1,7 +1,5 @@
 package com.kmwllc.solr.solrkafka.queue;
 
-import com.kmwllc.solr.solrkafka.requesthandler.DocumentData;
-
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 

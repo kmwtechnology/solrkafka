@@ -1,10 +1,9 @@
-package com.kmwllc.solr.solrkafka.serde.solr;
+package com.kmwllc.solr.solrkafka.datatypes.solr;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 
-import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.solr.common.SolrDocument;
 

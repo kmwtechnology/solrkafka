@@ -11,7 +11,7 @@ import java.util.ArrayList;
  * A request handler for displaying the current status of the {@link SolrDocumentImportHandler}.
  */
 public class SolrKafkaStatusRequestHandler extends RequestHandlerBase {
-  private static SolrDocumentImportHandler handler;
+  private static Importer handler;
 
   @Override
   public void handleRequestBody(SolrQueryRequest req, SolrQueryResponse rsp) throws Exception {
@@ -26,7 +26,7 @@ public class SolrKafkaStatusRequestHandler extends RequestHandlerBase {
     return "Request handler base";
   }
 
-  public static void setHandler(SolrDocumentImportHandler handler) {
+  public static void setHandler(Importer handler) {
     SolrKafkaStatusRequestHandler.handler = handler;
   }
 }

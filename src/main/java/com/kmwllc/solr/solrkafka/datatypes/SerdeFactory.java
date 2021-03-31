@@ -1,9 +1,9 @@
-package com.kmwllc.solr.solrkafka.serde;
+package com.kmwllc.solr.solrkafka.datatypes;
 
-import com.kmwllc.solr.solrkafka.serde.json.JsonDeserializer;
-import com.kmwllc.solr.solrkafka.serde.json.JsonSerializer;
-import com.kmwllc.solr.solrkafka.serde.solr.SolrDocumentDeserializer;
-import com.kmwllc.solr.solrkafka.serde.solr.SolrDocumentSerializer;
+import com.kmwllc.solr.solrkafka.datatypes.json.JsonDeserializer;
+import com.kmwllc.solr.solrkafka.datatypes.json.JsonSerializer;
+import com.kmwllc.solr.solrkafka.datatypes.solr.SolrDocumentDeserializer;
+import com.kmwllc.solr.solrkafka.datatypes.solr.SolrDocumentSerializer;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serializer;
 

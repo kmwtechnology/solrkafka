@@ -13,9 +13,9 @@ import java.util.Properties;
 public class SyncKafkaConsumerHandler extends KafkaConsumerHandler {
   private static final Logger log = LogManager.getLogger(SyncKafkaConsumerHandler.class);
 
-  SyncKafkaConsumerHandler(Properties consumerProps, String topic, boolean fromBeginning, boolean readFullyAndExit) {
-    // TODO: how large should we make the queue size?
-    super(consumerProps, topic, fromBeginning, readFullyAndExit, new NonBlockingMyQueue<>());
+  SyncKafkaConsumerHandler(Properties consumerProps, String topic, boolean fromBeginning, boolean readFullyAndExit,
+                           String dataType) {
+    super(consumerProps, topic, fromBeginning, readFullyAndExit, new NonBlockingMyQueue<>(), dataType);
     running = true;
   }
 

@@ -34,7 +34,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   private static final Logger log = LogManager.getLogger(SolrKafkaRequestHandler.class);
   private SolrCore core;
   private static final String topic = "testtopic";
-  private SolrDocumentImportHandler importer;
+  private Importer importer;
   private final Properties initProps = new Properties();
   private String incomingDataType = "solr";
   private String consumerType = "sync";
@@ -72,18 +72,20 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
 
     boolean fromBeginning = req.getParams().getBool("fromBeginning", false);
     boolean readFullyAndExit = req.getParams().getBool("exitAtEnd", false);
+    boolean simple = req.getParams().getBool("simple", false);
 
     if (importer != null) {
-      importer.close();
-      KafkaConsumerHandler consumerHandler = KafkaConsumerHandler.getInstance(consumerType,
-          initProps, topic, fromBeginning, readFullyAndExit);
-      importer.setConsumerHandler(consumerHandler);
+      importer.stop();
     }
-    else {
+    if (!simple) {
       KafkaConsumerHandler consumerHandler = KafkaConsumerHandler.getInstance(consumerType,
-          initProps, topic, fromBeginning, readFullyAndExit);
+          initProps, topic, fromBeginning, readFullyAndExit, incomingDataType);
+//      importer.setConsumerHandler(consumerHandler);
       importer = new SolrDocumentImportHandler(core, consumerHandler);
+    } else {
+      importer = new KafkaImporter(core, readFullyAndExit, fromBeginning);
     }
+
     SolrKafkaStatusRequestHandler.setHandler(importer);
     SolrKafkaStopRequestHandler.setHandler(importer);
     importer.startThread();
@@ -121,11 +123,12 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
 
   @Override
   public void inform(SolrCore core) {
+    // TODO: can this get updated in the middle of a request
     this.core = core;
     core.addCloseHook(new CloseHook() {
       @Override
       public void preClose(SolrCore core) {
-        importer.close();
+        importer.stop();
       }
 
       @Override
