@@ -50,7 +50,10 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 	  // Wait until the thread exits, the thread is preparing to exit, or there are documents in the queue
 		// to be processed
 		while (consumerThread != null && consumerThread.isAlive() && running && inputQueue.isEmpty()) {
-			Thread.onSpinWait();
+			log.debug("Input queue is empty, waiting for documents to populate");
+			// TODO: do we want to yield here or spin?
+//			Thread.onSpinWait();
+      Thread.yield();
 		}
 		return !inputQueue.isEmpty();
 	}
@@ -68,9 +71,11 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
     // Attempt to add commits to the pendingCommits map if the thread is still running
     pendingCommits.putAll(commit);
     if (running) {
+      log.info("Committing back to Kafka asynchronously in main thread");
     	return;
 		}
 
+    log.info("Waiting to shut down before committing to Kafka synchronously");
     while (consumerThread.isAlive()) {
     	Thread.onSpinWait();
 		}
@@ -88,6 +93,7 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 		while (running) {
 			// Not afraid to lose the occasional commit because it will be committed in the future in normal operation
 		  if (!pendingCommits.isEmpty()) {
+		  	log.info("Committing back to Kafka synchronously in main thread");
 		  	commitToConsumer(pendingCommits);
 		  	pendingCommits.clear();
 			}
@@ -107,15 +113,17 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 	 */
 	@Override
 	public void stop() {
+		log.info("Stopping consumer handler and closing consumer");
 		// interrupt this consumer thread.
 		running = false;
 		try {
 			// TODO: something better than just waiting for the previous poll attempt to finish.
 			Thread.sleep(POLL_TIMEOUT + 1000);
 		} catch (InterruptedException e) {
-			e.printStackTrace();
+			log.error("Sleep for shutdown interrupted", e);
 		}
 		if (consumerThread.isAlive()) {
+		  log.info("Consumer thread not done after sleep timeout; interrupting thread");
 			consumerThread.interrupt();
 		}
 		// TODO: should I join the thread here or something?

@@ -54,6 +54,7 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
     if (consumerHandler.hasAlreadyRun()) {
       throw new IllegalStateException("Consumer handler has not been (re-)initialized");
     }
+    log.info("Creating and starting thread");
     thread = new Thread(this);
     thread.start();
   }
@@ -81,7 +82,8 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
       @Override
       public void postCommit() {
         if (!consumerHandler.isRunning()) {
-          consumerHandler.stop();
+          log.info("Shutting down SolrDocumentImportHandler in callback");
+          stop();
         }
       }
 
@@ -106,8 +108,10 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
    */
   @Override
   public void stop() {
+    log.info("Stopping Importer");
     consumerHandler.stop();
     if (thread != null && thread.isAlive()) {
+      log.info("Thread took too long to shut down; interrupting thread");
       thread.interrupt();
     }
   }
@@ -125,6 +129,7 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
     // TODO: count # docs processed to make sure not double processing
     while (consumerHandler.hasNext()) {
       DocumentData doc = consumerHandler.next();
+      log.debug("Record received: {}", doc.getDoc());
       AddUpdateCommand add = new AddUpdateCommand(buildReq(doc.getDoc()));
       add.solrDoc = doc.convertToInputDoc();
       try {
@@ -136,11 +141,13 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
 
       addedOffsets.put(doc.getPart(), doc.getOffset());
       if (lastCommit.plus(commitInterval).isBefore(Instant.now())) {
+        log.info("Committing offsets using KafkaConsumerHandler after {} interval", commitInterval);
         consumerHandler.commitOffsets(addedOffsets);
         lastCommit = Instant.now();
       }
     }
 
+    log.info("Committing offsets and stopping KafkaConsumerHandler");
     consumerHandler.commitOffsets(addedOffsets);
     consumerHandler.stop();
     log.info("Kafka consumer finished");

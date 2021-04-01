@@ -79,6 +79,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
 
     if (action.equalsIgnoreCase("start")) {
       if (importer != null && importer.isThreadAlive()) {
+        log.info("Importer already running, skipping start process");
         rsp.add("Status", "Request already running");
         return;
       }
@@ -87,13 +88,17 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       boolean readFullyAndExit = req.getParams().getBool("exitAtEnd", false);
 
       if (importer != null) {
+        log.info("Stopping previously running importer");
         importer.stop();
       }
+
       if (!consumerType.equalsIgnoreCase("simple")) {
+        log.info("Creating {} KafkaConsumerHandler for SolrDocumentImportHandler Importer type", consumerType);
         KafkaConsumerHandler consumerHandler = KafkaConsumerHandler.getInstance(consumerType,
             initProps, topic, fromBeginning, readFullyAndExit, incomingDataType);
         importer = new SolrDocumentImportHandler(core, consumerHandler, commitInterval);
       } else {
+        log.info("Creating KafkaImporter Importer type");
         importer = new KafkaImporter(core, readFullyAndExit, fromBeginning, commitInterval);
       }
 
@@ -142,6 +147,8 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   public void init(PluginInfo info) {
     init(info.initArgs);
 
+    log.info("Initializing SolrKafkaRequestHandler with {} configs", info.initArgs);
+
     // TODO: determine if leader, only add documents if this is leader (probably)
 
     Object consumerType = info.initArgs.findRecursive("defaults", "consumerType");
@@ -161,12 +168,17 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
 
   @Override
   public void inform(SolrCore core) {
+    log.info("New SolrCore provided");
+
     // TODO: can this get updated in the middle of a request (can get called a few times, when reload?)
     this.core = core;
     core.addCloseHook(new CloseHook() {
       @Override
       public void preClose(SolrCore core) {
-        importer.stop();
+        log.info("SolrCore shutting down");
+        if (importer != null) {
+          importer.stop();
+        }
       }
 
       @Override

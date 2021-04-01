@@ -25,12 +25,11 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   protected Consumer<String, Map<String, Object>> consumer;
   protected static final long POLL_TIMEOUT = 1000;
   protected boolean readFullyAndExit;
-  private boolean alreadyRun = false;
   protected volatile boolean running = false;
   protected final MyQueue<DocumentData> inputQueue;
   protected volatile boolean isClosed = false;
   protected volatile boolean paused = false;
-  protected volatile boolean rewind = true;
+  protected volatile boolean rewind;
   private Map<String, Long> consumerGroupLag = new HashMap<>();
 
   /**
@@ -62,7 +61,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   public static KafkaConsumerHandler getInstance(String type, Properties consumerProps, String topic,
                                                  boolean fromBeginning, boolean readFullyAndExit, String dataType) {
     if (type == null || type.isBlank()) {
-      log.info("No type provided, defaulting to sync");
+      log.warn("No type provided, defaulting to sync");
       return new SyncKafkaConsumerHandler(consumerProps, topic, fromBeginning, readFullyAndExit, dataType);
     } else if (type.equalsIgnoreCase("async") || type.equalsIgnoreCase("asynchronous")) {
       return new AsyncKafkaConsumerHandler(consumerProps, topic, fromBeginning, readFullyAndExit, dataType);
@@ -91,15 +90,12 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   public abstract void stop();
 
   /**
-   * A method meant to be called to determine if this {@link KafkaConsumerHandler} has already run. When called
-   * will return the previous value and set the {@link this#alreadyRun} field to true.
+   * A method meant to be called to determine if this {@link KafkaConsumerHandler} has already run.
    *
-   * @return false if this method has not been called before, true otherwise
+   * @return the value of {@link this#isClosed}
    */
   public boolean hasAlreadyRun() {
-    boolean hasRun = alreadyRun;
-    alreadyRun = true;
-    return hasRun;
+    return isClosed;
   }
 
   /**
@@ -143,14 +139,20 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
    */
   protected void loadSolrDocs() {
     if (rewind) {
+      log.info("Initiating rewind");
+      // TODO: why is this poll here?
       consumer.poll(0);
       consumer.seekToBeginning(consumer.assignment());
       rewind = false;
     }
 
-    if (paused && consumer.paused().isEmpty()) {
+    final boolean localPaused = paused;
+
+    if (localPaused && consumer.paused().isEmpty()) {
+      log.info("Pausing unpaused Kafka consumer assignments");
       consumer.pause(consumer.assignment());
-    } else if (!paused && !consumer.paused().isEmpty()) {
+    } else if (!localPaused && !consumer.paused().isEmpty()) {
+      log.info("Resuming paused Kafka consumer assignments");
       consumer.resume(consumer.assignment());
     }
 
@@ -161,9 +163,10 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
       log.info("Thread isn't running.. breaking out!");
       return;
     }
-    if (consumerRecords.count() > 0 || paused) {
+    if (consumerRecords.count() > 0) {
       log.info("Processing consumer records. {}", consumerRecords.count());
       for (ConsumerRecord<String, Map<String, Object>> record : consumerRecords) {
+        log.debug("Record received: {}", record);
         TopicPartition partInfo = new TopicPartition(record.topic(), record.partition());
         OffsetAndMetadata offset = new OffsetAndMetadata(record.offset() + 1);
         try {
@@ -175,9 +178,10 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
         }
       }
     } else {
+      log.info("No records received");
       // no records read.. if we are reading from the beginning, we can assume we have caught up.
       // TODO: that's probably simplistic, we need to know if we are caught up for all partitions that we subscribe to!!!
-      if (readFullyAndExit) {
+      if (readFullyAndExit && !localPaused) {
         running = false;
       }
     }
@@ -196,6 +200,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
    */
   private Consumer<String, Map<String, Object>> createConsumer(Properties props, String dataType) {
     if (consumer != null) {
+      log.info("Closing existing consumer");
       consumer.close();
     }
 
@@ -221,6 +226,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   }
 
   protected void commitToConsumer(Map<TopicPartition, OffsetAndMetadata> commit) {
+    log.info("Committing back to Kafka and updating consumer group lag info");
     consumer.commitAsync(commit, (offsets, e) -> {
       if (e != null) {
         // TODO: what should be done when a CommitFailedException occurs?

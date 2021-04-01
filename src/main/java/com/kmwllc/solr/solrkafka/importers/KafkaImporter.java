@@ -78,13 +78,16 @@ public class KafkaImporter implements Runnable, Importer {
    * Sets the {@link UpdateHandler}'s callback. Used for committing offsets when the Solr index is committed.
    */
   private void setUpdateHandlerCallback() {
+    log.info("Registering UpdateHandler callback");
     updateHandler.registerCommitCallback(new SolrEventListener() {
       @Override
       public void postCommit() {
+        log.debug("UpdateHandler postCommit callback");
         if (isClosed) {
           return;
         }
         if (!running && thread != null && thread.isAlive()) {
+          log.info("Shutting down Importer");
           stop();
         }
       }
@@ -103,18 +106,28 @@ public class KafkaImporter implements Runnable, Importer {
 
   @Override
   public void startThread() {
+    log.info("Starting thread");
     running = true;
     thread.start();
   }
 
   @Override
   public void stop() {
+    log.info("Stopping importer");
     running = false;
     try {
       Thread.sleep(pollTimeout.toMillis() * 2);
     } catch (InterruptedException ignored) {
     }
-    thread.interrupt();
+    if (thread != null && thread.isAlive()) {
+      log.warn("Thread took too long to shut down; interrupting thread");
+      thread.interrupt();
+    }
+    if (!isClosed) {
+      log.warn("Consumer not closed in regular thread shutdown");
+      consumer.close();
+      isClosed = true;
+    }
   }
 
   @Override
@@ -144,23 +157,27 @@ public class KafkaImporter implements Runnable, Importer {
     Instant prevCommit = Instant.now();
     while (running) {
       if (rewind) {
+        log.info("Initiating rewind");
         consumer.poll(0);
         consumer.seekToBeginning(consumer.assignment());
         rewind = false;
       }
 
-      boolean localPaused = paused;
+      final boolean localPaused = paused;
 
       if (localPaused && consumer.paused().size() != consumer.assignment().size()) {
+        log.info("Pausing unpaused Kafka consumer assignments");
         consumer.pause(consumer.assignment());
       } else if (!localPaused && !consumer.paused().isEmpty()) {
+        log.info("Resuming paused Kafka consumer assignments");
         consumer.resume(consumer.assignment());
       }
 
       ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
-      if (consumerRecords.count() > 0 || localPaused) {
+      if (consumerRecords.count() > 0) {
         log.info("Processing consumer records. {}", consumerRecords.count());
         for (ConsumerRecord<String, SolrDocument> record : consumerRecords) {
+          log.debug("Record received: {}", record);
           SolrQueryRequest request = new LocalSolrQueryRequest(core, SOLR_REQUEST_ARGS);
           request.setJSON(record.value());
           AddUpdateCommand add = new AddUpdateCommand(request);
@@ -177,19 +194,30 @@ public class KafkaImporter implements Runnable, Importer {
           prevCommit = Instant.now();
         }
       } else {
+        log.info("No records received");
         // TODO: remove once stop() is working
-        if (readFullyAndExit) {
+        if (readFullyAndExit && !localPaused) {
           running = false;
         }
       }
     }
+
+    log.info("Cleaning up thread");
     commit();
     consumer.close();
     isClosed = true;
+    log.info("KafkaImporter finished");
   }
 
   public void commit() {
-    consumer.commitAsync();
+    log.info("Committing back to Kafka after {} delay and updating consumer group lag info", commitInterval);
+    try {
+      consumer.commitAsync();
+    } catch (CommitFailedException e) {
+      log.error("Commit failed", e);
+      running = false;
+    }
+
     Map<TopicPartition, Long> ends = consumer.endOffsets(consumer.assignment());
     Map<TopicPartition, OffsetAndMetadata> offsets = consumer.committed(consumer.assignment());
     for (Map.Entry<TopicPartition, Long> entry : ends.entrySet()) {

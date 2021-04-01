@@ -20,12 +20,13 @@ public class SyncKafkaConsumerHandler extends KafkaConsumerHandler {
 
   @Override
   public void stop() {
+    log.info("Stopping consumer handler and closing consumer");
     running = false;
     try {
       // TODO: something better than just waiting for the previous poll attempt to finish.
-      Thread.sleep(POLL_TIMEOUT + 1000);
+      Thread.sleep(POLL_TIMEOUT * 2);
     } catch (InterruptedException e) {
-      e.printStackTrace();
+      log.error("Sleep for shutdown interrupted", e);
     }
     if (!isClosed) {
       consumer.close();
@@ -35,12 +36,14 @@ public class SyncKafkaConsumerHandler extends KafkaConsumerHandler {
 
   @Override
   public void commitOffsets(Map<TopicPartition, OffsetAndMetadata> commit) {
+    log.info("Commit called, performing synchronously");
     commitToConsumer(commit);
   }
 
   @Override
   public boolean hasNext() {
     while (running && inputQueue.isEmpty()) {
+      log.debug("Input queue is empty, attempting to load documents");
       loadSolrDocs();
     }
     return !inputQueue.isEmpty();

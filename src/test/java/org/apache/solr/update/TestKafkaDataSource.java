@@ -18,8 +18,11 @@ import org.apache.solr.handler.dataimport.VariableResolver;
 import org.junit.Test;
 
 import com.kmwllc.solr.solrkafka.datasource.KafkaDataSource;
+import org.junit.jupiter.api.Disabled;
+
 // import org.apache.solr.handler.dataimport.AbstractDataImportHandlerTestCase;
 // public class TestKafkaDataSource extends AbstractDataImportHandlerTestCase {
+@Disabled
 public class TestKafkaDataSource {
 
 	// TODO: implement me!
