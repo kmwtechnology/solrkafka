@@ -21,12 +21,11 @@ public class SolrKafkaStatusRequestHandler extends RequestHandlerBase {
     ResponseBuilder rb = new ResponseBuilder(req, rsp, new ArrayList<>());
 
     rsp.add("Status",
-        "SolrKafka is " + (handler != null && handler.isThreadAlive() ? "" : "not ") + "running");
-    Map<String, Long> consumerGroupLag = null;
+        "SolrKafka status is " + (handler == null ? "NOT_INITIALIZED" : handler.getStatus()));
     if (handler != null && handler.isThreadAlive()) {
-      consumerGroupLag = handler.getConsumerGroupLag();
+      Map<String, Long> consumerGroupLag = handler.getConsumerGroupLag();
+      rsp.add("ConsumerGroupLag", consumerGroupLag);
     }
-    rsp.add("ConsumerGroupLag", consumerGroupLag);
   }
 
   @Override

@@ -1,5 +1,7 @@
 package com.kmwllc.solr.solrkafka.importers;
 
+import org.apache.solr.core.SolrCore;
+
 import java.util.Map;
 
 public interface Importer {
@@ -16,4 +18,8 @@ public interface Importer {
   void resume();
 
   void rewind();
+
+  void setNewCore(SolrCore core);
+
+  Status getStatus();
 }

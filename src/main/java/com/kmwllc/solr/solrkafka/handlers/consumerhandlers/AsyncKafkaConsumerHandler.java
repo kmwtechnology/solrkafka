@@ -1,5 +1,6 @@
 package com.kmwllc.solr.solrkafka.handlers.consumerhandlers;
 
+import com.kmwllc.solr.solrkafka.importers.Status;
 import com.kmwllc.solr.solrkafka.queue.BlockingMyQueue;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -36,7 +37,7 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 				dataType);
 		consumerThread = new Thread(this, "KafkaConsumerThread");
 		consumerThread.start();
-		running = true;
+		status = Status.RUNNING;
 		log.info("Kafka iterator created and started..");
 	}
 
@@ -49,7 +50,7 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 	public boolean hasNext() {
 	  // Wait until the thread exits, the thread is preparing to exit, or there are documents in the queue
 		// to be processed
-		while (consumerThread != null && consumerThread.isAlive() && running && inputQueue.isEmpty()) {
+		while (consumerThread != null && consumerThread.isAlive() && status.isOperational() && inputQueue.isEmpty()) {
 			log.debug("Input queue is empty, waiting for documents to populate");
 			// TODO: do we want to yield here or spin?
 //			Thread.onSpinWait();
@@ -70,7 +71,7 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 	public void commitOffsets(Map<TopicPartition, OffsetAndMetadata> commit) {
     // Attempt to add commits to the pendingCommits map if the thread is still running
     pendingCommits.putAll(commit);
-    if (running) {
+    if (status.isOperational()) {
       log.info("Committing back to Kafka asynchronously in main thread");
     	return;
 		}
@@ -90,14 +91,15 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 		// now, we need to consume and put on queue.
 		log.info("Staring Kafka consumer thread.");
 		// Commit any pending commits
-		while (running) {
+		while (status.isOperational()) {
 			// Not afraid to lose the occasional commit because it will be committed in the future in normal operation
+			// TODO: make sure this gets cleared during rewind
 		  if (!pendingCommits.isEmpty()) {
 		  	log.info("Committing back to Kafka synchronously in main thread");
 		  	commitToConsumer(pendingCommits);
 		  	pendingCommits.clear();
 			}
-			if (!running) {
+			if (!status.isOperational()) {
 				break;
 			}
 			loadSolrDocs();
@@ -115,7 +117,7 @@ public class AsyncKafkaConsumerHandler extends KafkaConsumerHandler implements R
 	public void stop() {
 		log.info("Stopping consumer handler and closing consumer");
 		// interrupt this consumer thread.
-		running = false;
+    status = Status.DONE;
 		try {
 			// TODO: something better than just waiting for the previous poll attempt to finish.
 			Thread.sleep(POLL_TIMEOUT + 1000);

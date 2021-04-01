@@ -1,5 +1,6 @@
 package com.kmwllc.solr.solrkafka.handlers.consumerhandlers;
 
+import com.kmwllc.solr.solrkafka.importers.Status;
 import com.kmwllc.solr.solrkafka.queue.NonBlockingMyQueue;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
@@ -15,13 +16,13 @@ public class SyncKafkaConsumerHandler extends KafkaConsumerHandler {
   SyncKafkaConsumerHandler(Properties consumerProps, String topic, boolean fromBeginning, boolean readFullyAndExit,
                            String dataType) {
     super(consumerProps, topic, fromBeginning, readFullyAndExit, new NonBlockingMyQueue<>(), dataType);
-    running = true;
+    status = Status.RUNNING;
   }
 
   @Override
   public void stop() {
     log.info("Stopping consumer handler and closing consumer");
-    running = false;
+    status = Status.DONE;
     try {
       // TODO: something better than just waiting for the previous poll attempt to finish.
       Thread.sleep(POLL_TIMEOUT * 2);
@@ -42,7 +43,7 @@ public class SyncKafkaConsumerHandler extends KafkaConsumerHandler {
 
   @Override
   public boolean hasNext() {
-    while (running && inputQueue.isEmpty()) {
+    while (status.isOperational() && inputQueue.isEmpty()) {
       log.debug("Input queue is empty, attempting to load documents");
       loadSolrDocs();
     }

@@ -31,27 +31,25 @@ public class KafkaImporter implements Runnable, Importer {
 
   private static final Logger log = LogManager.getLogger(KafkaImporter.class);
 
-  private final SolrCore core;
+  private volatile SolrCore core;
 
-  private final UpdateHandler updateHandler;
+  private volatile UpdateHandler updateHandler;
 
-  private Consumer<String, SolrDocument> consumer;
+  private final Consumer<String, SolrDocument> consumer;
 
   private final Duration pollTimeout = Duration.ofMillis(1000);
 
   private static final NamedList SOLR_REQUEST_ARGS = new NamedList();
 
-  private Thread thread;
+  private final Thread thread;
 
-  private volatile boolean running = false;
+  private volatile Status status = Status.NOT_STARTED;
 
   private final boolean readFullyAndExit;
 
   private volatile boolean isClosed = false;
 
   private final TemporalAmount commitInterval;
-
-  private volatile boolean paused = false;
 
   private volatile boolean rewind;
 
@@ -86,7 +84,7 @@ public class KafkaImporter implements Runnable, Importer {
         if (isClosed) {
           return;
         }
-        if (!running && thread != null && thread.isAlive()) {
+        if (!status.isOperational() && thread != null && thread.isAlive()) {
           log.info("Shutting down Importer");
           stop();
         }
@@ -107,16 +105,16 @@ public class KafkaImporter implements Runnable, Importer {
   @Override
   public void startThread() {
     log.info("Starting thread");
-    running = true;
+    status = Status.RUNNING;
     thread.start();
   }
 
   @Override
   public void stop() {
     log.info("Stopping importer");
-    running = false;
+    status = Status.DONE;
     try {
-      Thread.sleep(pollTimeout.toMillis() * 2);
+      Thread.sleep(pollTimeout.toMillis() * 5);
     } catch (InterruptedException ignored) {
     }
     if (thread != null && thread.isAlive()) {
@@ -132,17 +130,32 @@ public class KafkaImporter implements Runnable, Importer {
 
   @Override
   public void pause() {
-    paused = true;
+    if (status.isOperational()) {
+      status = Status.PAUSED;
+    }
   }
 
   @Override
   public void resume() {
-    paused = false;
+    if (status.isOperational()){
+      status = Status.RUNNING;
+    }
   }
 
   @Override
   public void rewind() {
     rewind = true;
+  }
+
+  @Override
+  public Status getStatus() {
+    return status;
+  }
+
+  @Override
+  public void setNewCore(SolrCore core) {
+    this.core = core;
+    this.updateHandler = core.getUpdateHandler();
   }
 
   @Override
@@ -155,7 +168,7 @@ public class KafkaImporter implements Runnable, Importer {
     log.info("Starting Kafka consumer");
 
     Instant prevCommit = Instant.now();
-    while (running) {
+    while (status.isOperational()) {
       if (rewind) {
         log.info("Initiating rewind");
         consumer.poll(0);
@@ -163,12 +176,12 @@ public class KafkaImporter implements Runnable, Importer {
         rewind = false;
       }
 
-      final boolean localPaused = paused;
+      final Status localStatus = status;
 
-      if (localPaused && consumer.paused().size() != consumer.assignment().size()) {
+      if (localStatus == Status.PAUSED && consumer.paused().size() != consumer.assignment().size()) {
         log.info("Pausing unpaused Kafka consumer assignments");
         consumer.pause(consumer.assignment());
-      } else if (!localPaused && !consumer.paused().isEmpty()) {
+      } else if (localStatus == Status.RUNNING && !consumer.paused().isEmpty()) {
         log.info("Resuming paused Kafka consumer assignments");
         consumer.resume(consumer.assignment());
       }
@@ -186,19 +199,21 @@ public class KafkaImporter implements Runnable, Importer {
             updateHandler.addDoc(add);
           } catch (IOException e) {
             log.error("Couldn't add solr doc...", e);
+            status = Status.ERROR;
           }
         }
 
-        if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
-          commit();
-          prevCommit = Instant.now();
-        }
       } else {
         log.info("No records received");
         // TODO: remove once stop() is working
-        if (readFullyAndExit && !localPaused) {
-          running = false;
+        if (readFullyAndExit && localStatus != Status.PAUSED) {
+          status = Status.DONE;
         }
+      }
+
+      if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
+        commit();
+        prevCommit = Instant.now();
       }
     }
 
@@ -215,7 +230,7 @@ public class KafkaImporter implements Runnable, Importer {
       consumer.commitAsync();
     } catch (CommitFailedException e) {
       log.error("Commit failed", e);
-      running = false;
+      status = Status.ERROR;
     }
 
     Map<TopicPartition, Long> ends = consumer.endOffsets(consumer.assignment());

@@ -172,12 +172,19 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
 
     // TODO: can this get updated in the middle of a request (can get called a few times, when reload?)
     this.core = core;
+
+    if (importer != null) {
+      log.info("Setting new core in importer");
+      importer.setNewCore(core);
+      importer.resume();
+    }
+
     core.addCloseHook(new CloseHook() {
       @Override
       public void preClose(SolrCore core) {
         log.info("SolrCore shutting down");
         if (importer != null) {
-          importer.stop();
+          importer.pause();
         }
       }
 

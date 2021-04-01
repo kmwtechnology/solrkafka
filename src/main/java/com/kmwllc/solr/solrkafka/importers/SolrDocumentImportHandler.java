@@ -29,13 +29,20 @@ import java.util.concurrent.Semaphore;
  */
 public class SolrDocumentImportHandler implements Runnable, Importer {
   private static final Logger log = LogManager.getLogger(SolrDocumentImportHandler.class);
+  private static final NamedList SOLR_REQUEST_ARGS = new NamedList();
 
-  private final SolrCore core;
-  private final UpdateHandler updateHandler;
+  private volatile SolrCore core;
+  private volatile UpdateHandler updateHandler;
   private Thread thread;
   private KafkaConsumerHandler consumerHandler;
   private final Map<TopicPartition, OffsetAndMetadata> addedOffsets = new HashMap<>();
   private final TemporalAmount commitInterval;
+
+  static {
+    SOLR_REQUEST_ARGS.add("commitWithin", "1000");
+    SOLR_REQUEST_ARGS.add("overwrite", "true");
+    SOLR_REQUEST_ARGS.add("wt", "json");
+  }
 
   public SolrDocumentImportHandler(SolrCore core, KafkaConsumerHandler consumerHandler, long commitInterval) {
     this.core = core;
@@ -51,7 +58,7 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
    * if this is being reused.
    */
   public void startThread() {
-    if (consumerHandler.hasAlreadyRun()) {
+    if (consumerHandler.getStatus() == Status.DONE || consumerHandler.getStatus() == Status.ERROR) {
       throw new IllegalStateException("Consumer handler has not been (re-)initialized");
     }
     log.info("Creating and starting thread");
@@ -72,6 +79,17 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
   @Override
   public void rewind() {
     consumerHandler.rewind();
+  }
+
+  @Override
+  public Status getStatus() {
+    return consumerHandler.getStatus();
+  }
+
+  @Override
+  public void setNewCore(SolrCore core) {
+    this.core = core;
+    this.updateHandler = core.getUpdateHandler();
   }
 
   /**
@@ -165,12 +183,7 @@ public class SolrDocumentImportHandler implements Runnable, Importer {
    * @return A prepared request
    */
   private SolrQueryRequest buildReq(Map<String, Object> doc) {
-    @SuppressWarnings("unchecked")
-    Map.Entry<String, String>[] nl = new NamedList.NamedListEntry[3];
-    nl[0] = new NamedList.NamedListEntry<>("commitWithin", "1000");
-    nl[1] = new NamedList.NamedListEntry<>("overwrite", "true");
-    nl[2] = new NamedList.NamedListEntry<>("wt", "json");
-    SolrQueryRequest req = new LocalSolrQueryRequest(core, new NamedList<>(nl));
+    SolrQueryRequest req = new LocalSolrQueryRequest(core, SOLR_REQUEST_ARGS);
     req.setJSON(doc);
     return req;
   }

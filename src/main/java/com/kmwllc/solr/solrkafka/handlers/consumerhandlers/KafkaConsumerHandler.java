@@ -1,6 +1,7 @@
 package com.kmwllc.solr.solrkafka.handlers.consumerhandlers;
 
 import com.kmwllc.solr.solrkafka.datatypes.SerdeFactory;
+import com.kmwllc.solr.solrkafka.importers.Status;
 import com.kmwllc.solr.solrkafka.queue.MyQueue;
 import com.kmwllc.solr.solrkafka.datatypes.DocumentData;
 import org.apache.kafka.clients.consumer.Consumer;
@@ -25,12 +26,11 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   protected Consumer<String, Map<String, Object>> consumer;
   protected static final long POLL_TIMEOUT = 1000;
   protected boolean readFullyAndExit;
-  protected volatile boolean running = false;
+  protected volatile Status status = Status.NOT_STARTED;
   protected final MyQueue<DocumentData> inputQueue;
   protected volatile boolean isClosed = false;
-  protected volatile boolean paused = false;
   protected volatile boolean rewind;
-  private Map<String, Long> consumerGroupLag = new HashMap<>();
+  private final Map<String, Long> consumerGroupLag = new HashMap<>();
 
   /**
    * @param consumerProps The properties used to initialize the {@link Consumer}
@@ -73,11 +73,15 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   }
 
   public void pause() {
-    paused = true;
+    if (status.isOperational()) {
+      status = Status.PAUSED;
+    }
   }
 
   public void resume() {
-    paused = false;
+    if (status.isOperational()) {
+      status = Status.RUNNING;
+    }
   }
 
   public void rewind() {
@@ -89,13 +93,8 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
    */
   public abstract void stop();
 
-  /**
-   * A method meant to be called to determine if this {@link KafkaConsumerHandler} has already run.
-   *
-   * @return the value of {@link this#isClosed}
-   */
-  public boolean hasAlreadyRun() {
-    return isClosed;
+  public Status getStatus() {
+    return status;
   }
 
   /**
@@ -106,7 +105,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   public abstract void commitOffsets(Map<TopicPartition, OffsetAndMetadata> commit);
 
   public boolean isRunning() {
-    return this.running;
+    return status.isOperational();
   }
 
   @Override
@@ -123,7 +122,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
         o = inputQueue.poll();
       } catch (InterruptedException e) {
         log.error("Kafka Iterator Interrupted. ", e);
-        running = false;
+        status = Status.ERROR;
         break;
       }
     }
@@ -132,10 +131,8 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
   }
 
   /**
-   * Gets the next batch of Solr documents from Kafka, returning false immediately if {@link this#running} is false.
+   * Gets the next batch of Solr documents from Kafka, returning false immediately if {@link this#status} is DONE or ERROR.
    * If {@link this#readFullyAndExit} is true, then {@code running} is set to false.
-   *
-   * @return true if documents were added to {@link this#inputQueue}, false otherwise
    */
   protected void loadSolrDocs() {
     if (rewind) {
@@ -146,12 +143,12 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
       rewind = false;
     }
 
-    final boolean localPaused = paused;
+    final Status localStatus = status;
 
-    if (localPaused && consumer.paused().isEmpty()) {
+    if (localStatus == Status.PAUSED && consumer.paused().isEmpty()) {
       log.info("Pausing unpaused Kafka consumer assignments");
       consumer.pause(consumer.assignment());
-    } else if (!localPaused && !consumer.paused().isEmpty()) {
+    } else if (localStatus == Status.RUNNING && !consumer.paused().isEmpty()) {
       log.info("Resuming paused Kafka consumer assignments");
       consumer.resume(consumer.assignment());
     }
@@ -159,7 +156,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
     // Locking here to prevent commits back to Kafka if it happens at the same time as this
     final ConsumerRecords<String, Map<String, Object>> consumerRecords = consumer.poll(POLL_TIMEOUT);
     // were we interrupted since the pollTimeout.. if so.. quick exit here.
-    if (!running) {
+    if (!localStatus.isOperational()) {
       log.info("Thread isn't running.. breaking out!");
       return;
     }
@@ -172,7 +169,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
         try {
           inputQueue.put(new DocumentData(record.value(), partInfo, offset));
         } catch (InterruptedException e) {
-          running = false;
+          status = Status.ERROR;
           log.info("Kafka consumer thread interrupted.", e);
           break;
         }
@@ -181,8 +178,8 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
       log.info("No records received");
       // no records read.. if we are reading from the beginning, we can assume we have caught up.
       // TODO: that's probably simplistic, we need to know if we are caught up for all partitions that we subscribe to!!!
-      if (readFullyAndExit && !localPaused) {
-        running = false;
+      if (readFullyAndExit && localStatus != Status.PAUSED) {
+        status = Status.DONE;
       }
     }
   }
@@ -232,7 +229,7 @@ public abstract class KafkaConsumerHandler implements Iterator<DocumentData> {
         // TODO: what should be done when a CommitFailedException occurs?
         // Seems to be happening because the max Kafka poll interval was exceeded
         log.error("Error occurred with index commit", e);
-        running = false;
+        status = Status.ERROR;
       }
     });
 

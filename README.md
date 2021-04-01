@@ -62,7 +62,6 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
 
 ```xml
 
-<lib dir="${solr.install.dir}/lib/" regex=".*\.jar"/>
 <requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.handlers.requesthandlers.SolrKafkaRequestHandler"
                 startup="lazy">
 <lst name="defaults">
