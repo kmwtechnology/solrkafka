@@ -115,7 +115,9 @@ public class KafkaImporter implements Runnable, Importer {
     status = Status.DONE;
     try {
       Thread.sleep(pollTimeout.toMillis() * 5);
-    } catch (InterruptedException ignored) {
+    } catch (InterruptedException e) {
+      log.error("Thread interrupted while stopping", e);
+      status = Status.ERROR;
     }
     if (thread != null && thread.isAlive()) {
       log.warn("Thread took too long to shut down; interrupting thread");
@@ -170,6 +172,7 @@ public class KafkaImporter implements Runnable, Importer {
     Instant prevCommit = Instant.now();
     while (status.isOperational()) {
       if (rewind) {
+        // TODO: might want to remove later on (might be complicated with multiple nodes)
         log.info("Initiating rewind");
         consumer.poll(0);
         consumer.seekToBeginning(consumer.assignment());
@@ -178,6 +181,7 @@ public class KafkaImporter implements Runnable, Importer {
 
       final Status localStatus = status;
 
+      // TODO: do we want to keep pause and resume?
       if (localStatus == Status.PAUSED && consumer.paused().size() != consumer.assignment().size()) {
         log.info("Pausing unpaused Kafka consumer assignments");
         consumer.pause(consumer.assignment());
@@ -230,7 +234,7 @@ public class KafkaImporter implements Runnable, Importer {
       consumer.commitAsync();
     } catch (CommitFailedException e) {
       log.error("Commit failed", e);
-      status = Status.ERROR;
+      consumerGroupLag.clear();
     }
 
     Map<TopicPartition, Long> ends = consumer.endOffsets(consumer.assignment());
