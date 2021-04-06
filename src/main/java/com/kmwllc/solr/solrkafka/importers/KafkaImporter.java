@@ -249,10 +249,10 @@ public class KafkaImporter implements Runnable, Importer {
     return consumerGroupLag;
   }
 
-  private static Consumer<String, SolrDocument> createConsumer() {
+  private Consumer<String, SolrDocument> createConsumer() {
     Properties props = new Properties();
     props.putIfAbsent(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
-    props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, "SolrKafkaConsumer");
+    props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, core.getName());
     props.putIfAbsent(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
     props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SolrDocumentDeserializer.class.getName());
     props.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");

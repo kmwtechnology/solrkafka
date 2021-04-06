@@ -66,7 +66,7 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
                 startup="lazy">
 <lst name="defaults">
     <str name="incomingDataType">solr</str>
-    <str name="consumerType">sync</str>
+    <str name="consumerType">simple</str>
     <str name="commitInterval">5000</str>
 </lst>
 </requestHandler>

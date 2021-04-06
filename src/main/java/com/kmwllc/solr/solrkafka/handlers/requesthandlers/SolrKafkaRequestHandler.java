@@ -45,7 +45,6 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   public SolrKafkaRequestHandler() {
     log.info("Kafka Consumer created.");
   }
-  // TODO: support deletes, updates, ... at some point
 
   /**
    * Handle the request to start the Kafka consumer by ensuring no {@link CircuitBreaker}s have been tripped. If
@@ -68,6 +67,9 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       rsp.setException(new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE, "Circuit Breakers tripped " + errorMsg));
       return;
     }
+
+    // TODO: if distributed, use a shard handler to forward req (see distributedupdateprocessor and searchhandler)
+
 
     Object actionObj = req.getParams().get("action");
     String action;
@@ -170,7 +172,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   public void inform(SolrCore core) {
     log.info("New SolrCore provided");
 
-    // TODO: can this get updated in the middle of a request (can get called a few times, when reload?)
+    // TODO: pull doc into all shards
     this.core = core;
 
     if (importer != null) {
