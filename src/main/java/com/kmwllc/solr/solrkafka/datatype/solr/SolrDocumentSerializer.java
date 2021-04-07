@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka.datatypes.solr;
+package com.kmwllc.solr.solrkafka.datatype.solr;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

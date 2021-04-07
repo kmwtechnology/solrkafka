@@ -1,6 +1,6 @@
-package com.kmwllc.solr.solrkafka.handlers.consumerhandlers;
+package com.kmwllc.solr.solrkafka.handler.consumerhandler;
 
-import com.kmwllc.solr.solrkafka.importers.Status;
+import com.kmwllc.solr.solrkafka.importer.Status;
 import com.kmwllc.solr.solrkafka.queue.NonBlockingMyQueue;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;

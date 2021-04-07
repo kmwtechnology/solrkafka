@@ -1,9 +1,9 @@
-package com.kmwllc.solr.solrkafka.handlers.consumerhandlers;
+package com.kmwllc.solr.solrkafka.handler.consumerhandler;
 
-import com.kmwllc.solr.solrkafka.datatypes.SerdeFactory;
-import com.kmwllc.solr.solrkafka.importers.Status;
+import com.kmwllc.solr.solrkafka.datatype.SerdeFactory;
+import com.kmwllc.solr.solrkafka.importer.Status;
 import com.kmwllc.solr.solrkafka.queue.MyQueue;
-import com.kmwllc.solr.solrkafka.datatypes.DocumentData;
+import com.kmwllc.solr.solrkafka.datatype.DocumentData;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;

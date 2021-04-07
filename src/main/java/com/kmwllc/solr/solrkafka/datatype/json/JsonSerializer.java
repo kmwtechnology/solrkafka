@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka.datatypes.json;
+package com.kmwllc.solr.solrkafka.datatype.json;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.common.serialization.Serializer;

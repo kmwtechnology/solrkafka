@@ -1,12 +1,13 @@
-package com.kmwllc.solr.solrkafka.handlers.requesthandlers;
+package com.kmwllc.solr.solrkafka.handler.requesthandler;
 
-import com.kmwllc.solr.solrkafka.importers.Importer;
-import com.kmwllc.solr.solrkafka.importers.KafkaImporter;
-import com.kmwllc.solr.solrkafka.importers.SolrDocumentImportHandler;
-import com.kmwllc.solr.solrkafka.handlers.consumerhandlers.AsyncKafkaConsumerHandler;
-import com.kmwllc.solr.solrkafka.handlers.consumerhandlers.KafkaConsumerHandler;
+import com.kmwllc.solr.solrkafka.importer.Importer;
+import com.kmwllc.solr.solrkafka.importer.KafkaImporter;
+import com.kmwllc.solr.solrkafka.importer.SolrDocumentImportHandler;
+import com.kmwllc.solr.solrkafka.handler.consumerhandler.AsyncKafkaConsumerHandler;
+import com.kmwllc.solr.solrkafka.handler.consumerhandler.KafkaConsumerHandler;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.solr.cloud.CloudDescriptor;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.core.CloseHook;
@@ -41,6 +42,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   private String incomingDataType = "solr";
   private String consumerType = "sync";
   private long commitInterval = 5000;
+  private volatile boolean shouldRun = false;
 
   public SolrKafkaRequestHandler() {
     log.info("Kafka Consumer created.");
@@ -70,6 +72,20 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
 
     // TODO: if distributed, use a shard handler to forward req (see distributedupdateprocessor and searchhandler)
 
+    boolean isLeader;
+
+    try {
+      isLeader = isCoreLeader(core);
+      if (isLeader) {
+        rsp.add("leader", "true");
+      } else {
+        rsp.add("leader", "false");
+      }
+    } catch (InterruptedException e) {
+      log.error("Interrupted while determining core leader status", e);
+      rsp.add("Status", "Could not determine core leader status, exiting");
+      return;
+    }
 
     Object actionObj = req.getParams().get("action");
     String action;
@@ -80,44 +96,38 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     }
 
     if (action.equalsIgnoreCase("start")) {
-      if (importer != null && importer.isThreadAlive()) {
-        log.info("Importer already running, skipping start process");
-        rsp.add("Status", "Request already running");
+      shouldRun = true;
+      if (isLeader) {
+        boolean fromBeginning = req.getParams().getBool("fromBeginning", false);
+        boolean readFullyAndExit = req.getParams().getBool("exitAtEnd", false);
+
+        if (!startImporter(fromBeginning, readFullyAndExit)) {
+          rsp.add("Status", "Request already running");
+          return;
+        }
+
+        rsp.add("Status", "Started");
         return;
-      }
-
-      boolean fromBeginning = req.getParams().getBool("fromBeginning", false);
-      boolean readFullyAndExit = req.getParams().getBool("exitAtEnd", false);
-
-      if (importer != null) {
-        log.info("Stopping previously running importer");
-        importer.stop();
-      }
-
-      if (!consumerType.equalsIgnoreCase("simple")) {
-        log.info("Creating {} KafkaConsumerHandler for SolrDocumentImportHandler Importer type", consumerType);
-        KafkaConsumerHandler consumerHandler = KafkaConsumerHandler.getInstance(consumerType,
-            initProps, topic, fromBeginning, readFullyAndExit, incomingDataType);
-        importer = new SolrDocumentImportHandler(core, consumerHandler, commitInterval);
       } else {
-        log.info("Creating KafkaImporter Importer type");
-        importer = new KafkaImporter(core, readFullyAndExit, fromBeginning, commitInterval);
+        log.info("Not leader, ready to run");
+        rsp.add("Status", "Not leader, but ready to run");
       }
-
-      SolrKafkaStatusRequestHandler.setHandler(importer);
-      importer.startThread();
-      rsp.add("Status", "Started");
       return;
     }
 
-    if (importer == null || !importer.isThreadAlive()) {
+    if (isLeader && (importer == null || !importer.isThreadAlive())) {
       rsp.add("Status", "SolrKafka not running");
       return;
     }
 
     if (action.equalsIgnoreCase("stop")) {
-      importer.stop();
+      shouldRun = false;
+      if (isLeader) {
+        importer.stop();
+      }
       rsp.add("Status", "Stopping SolrKafka");
+    } else if (!isLeader) {
+      rsp.add("Status", "Core is not leader");
     } else if (action.equalsIgnoreCase("pause")) {
       importer.pause();
       rsp.add("Status", "Paused SolrKafka");
@@ -128,6 +138,32 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       importer.rewind();
       rsp.add("Status", "Rewound SolrKafka");
     }
+  }
+
+  private boolean startImporter(boolean fromBeginning, boolean readFullyAndExit) {
+    if (importer != null && importer.isThreadAlive()) {
+      log.info("Importer already running, skipping start process");
+      return false;
+    }
+
+    if (importer != null) {
+      log.info("Stopping previously running importer");
+      importer.stop();
+    }
+
+    if (!consumerType.equalsIgnoreCase("simple")) {
+      log.info("Creating {} KafkaConsumerHandler for SolrDocumentImportHandler Importer type", consumerType);
+      KafkaConsumerHandler consumerHandler = KafkaConsumerHandler.getInstance(consumerType,
+          initProps, topic, fromBeginning, readFullyAndExit, incomingDataType);
+      importer = new SolrDocumentImportHandler(core, consumerHandler, commitInterval);
+    } else {
+      log.info("Creating KafkaImporter Importer type");
+      importer = new KafkaImporter(core, readFullyAndExit, fromBeginning, commitInterval, false);
+    }
+
+    SolrKafkaStatusRequestHandler.setHandler(importer);
+    importer.startThread();
+    return true;
   }
 
   @Override
@@ -151,8 +187,6 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
 
     log.info("Initializing SolrKafkaRequestHandler with {} configs", info.initArgs);
 
-    // TODO: determine if leader, only add documents if this is leader (probably)
-
     Object consumerType = info.initArgs.findRecursive("defaults", "consumerType");
     Object incomingDataType = info.initArgs.findRecursive("defaults", "incomingDataType");
     Object commitInterval = info.initArgs.findRecursive("defaults", "commitInterval");
@@ -168,17 +202,35 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     }
   }
 
+  public static boolean isCoreLeader(SolrCore core) throws InterruptedException {
+    CloudDescriptor cloud = core.getCoreDescriptor().getCloudDescriptor();
+    return core.getCoreContainer().getZkController().getZkStateReader().getLeaderRetry(
+        cloud.getCollectionName(), cloud.getShardId()).getName().equals(cloud.getCoreNodeName());
+  }
+
   @Override
   public void inform(SolrCore core) {
     log.info("New SolrCore provided");
 
-    // TODO: pull doc into all shards
     this.core = core;
 
     if (importer != null) {
       log.info("Setting new core in importer");
+      importer.pause();
       importer.setNewCore(core);
-      importer.resume();
+    }
+
+    try {
+      if (isCoreLeader(core) && shouldRun) {
+        if (importer == null || !importer.getStatus().isOperational()) {
+          startImporter(false, false);
+        } else {
+          importer.resume();
+        }
+      }
+    } catch (InterruptedException e) {
+      log.error("Interrupted while determining leader status", e);
+      importer.stop();
     }
 
     core.addCloseHook(new CloseHook() {

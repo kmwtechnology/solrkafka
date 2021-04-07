@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka.importers;
+package com.kmwllc.solr.solrkafka.importer;
 
 import org.apache.solr.core.SolrCore;
 

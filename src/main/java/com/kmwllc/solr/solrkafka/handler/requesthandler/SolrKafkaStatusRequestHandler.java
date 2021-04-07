@@ -1,7 +1,7 @@
-package com.kmwllc.solr.solrkafka.handlers.requesthandlers;
+package com.kmwllc.solr.solrkafka.handler.requesthandler;
 
-import com.kmwllc.solr.solrkafka.importers.Importer;
-import com.kmwllc.solr.solrkafka.importers.SolrDocumentImportHandler;
+import com.kmwllc.solr.solrkafka.importer.Importer;
+import com.kmwllc.solr.solrkafka.importer.SolrDocumentImportHandler;
 import org.apache.solr.handler.RequestHandlerBase;
 import org.apache.solr.handler.component.ResponseBuilder;
 import org.apache.solr.request.SolrQueryRequest;

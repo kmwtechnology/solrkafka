@@ -1,7 +1,7 @@
-package com.kmwllc.solr.solrkafka.importers;
+package com.kmwllc.solr.solrkafka.importer;
 
-import com.kmwllc.solr.solrkafka.datatypes.DocumentData;
-import com.kmwllc.solr.solrkafka.handlers.consumerhandlers.KafkaConsumerHandler;
+import com.kmwllc.solr.solrkafka.datatype.DocumentData;
+import com.kmwllc.solr.solrkafka.handler.consumerhandler.KafkaConsumerHandler;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.logging.log4j.LogManager;
@@ -22,7 +22,6 @@ import java.time.Instant;
 import java.time.temporal.TemporalAmount;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.Semaphore;
 
 /**
  * Handles inserting documents returned by the {@link KafkaConsumerHandler} into Solr.

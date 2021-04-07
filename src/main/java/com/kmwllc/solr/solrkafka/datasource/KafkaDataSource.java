@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.LinkedBlockingQueue;
 
-import com.kmwllc.solr.solrkafka.datatypes.solr.SolrDocumentDeserializer;
+import com.kmwllc.solr.solrkafka.datatype.solr.SolrDocumentDeserializer;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;

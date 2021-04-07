@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka.importers;
+package com.kmwllc.solr.solrkafka.importer;
 
 public enum Status {
   NOT_STARTED(true), RUNNING(true), PAUSED(true), DONE, ERROR;

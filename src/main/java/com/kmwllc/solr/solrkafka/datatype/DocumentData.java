@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka.datatypes;
+package com.kmwllc.solr.solrkafka.datatype;
 
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;

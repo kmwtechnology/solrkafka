@@ -62,16 +62,16 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
 
 ```xml
 
-<requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.handlers.requesthandlers.SolrKafkaRequestHandler"
+<requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.handler.requesthandler.SolrKafkaRequestHandler"
                 startup="lazy">
-<lst name="defaults">
-    <str name="incomingDataType">solr</str>
-    <str name="consumerType">simple</str>
-    <str name="commitInterval">5000</str>
-</lst>
+    <lst name="defaults">
+        <str name="incomingDataType">solr</str>
+        <str name="consumerType">simple</str>
+        <str name="commitInterval">5000</str>
+    </lst>
 </requestHandler>
 <requestHandler name="/kafka/status"
-                class="com.kmwllc.solr.solrkafka.handlers.requesthandlers.SolrKafkaStatusRequestHandler"
+                class="com.kmwllc.solr.solrkafka.handler.requesthandler.SolrKafkaStatusRequestHandler"
                 startup="lazy"/>
 ```
 
