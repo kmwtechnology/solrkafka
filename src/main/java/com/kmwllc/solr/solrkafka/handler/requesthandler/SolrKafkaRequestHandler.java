@@ -43,6 +43,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   private String consumerType = "sync";
   private long commitInterval = 5000;
   private volatile boolean shouldRun = false;
+  private boolean ignoreShardRouting = false;
 
   public SolrKafkaRequestHandler() {
     log.info("Kafka Consumer created.");
@@ -158,7 +159,8 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       importer = new SolrDocumentImportHandler(core, consumerHandler, commitInterval);
     } else {
       log.info("Creating KafkaImporter Importer type");
-      importer = new KafkaImporter(core, readFullyAndExit, fromBeginning, commitInterval, false);
+      importer = new KafkaImporter(core, readFullyAndExit, fromBeginning, commitInterval,
+          ignoreShardRouting);
     }
 
     SolrKafkaStatusRequestHandler.setHandler(importer);
@@ -190,6 +192,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     Object consumerType = info.initArgs.findRecursive("defaults", "consumerType");
     Object incomingDataType = info.initArgs.findRecursive("defaults", "incomingDataType");
     Object commitInterval = info.initArgs.findRecursive("defaults", "commitInterval");
+    Object ignoreShardRouting = info.initArgs.findRecursive("defaults", "ignoreShardRouting");
 
     if (consumerType != null) {
       this.consumerType = consumerType.toString();
@@ -199,6 +202,9 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     }
     if (commitInterval != null) {
       this.commitInterval = Long.parseLong(commitInterval.toString());
+    }
+    if (ignoreShardRouting != null) {
+      this.ignoreShardRouting = Boolean.parseBoolean(ignoreShardRouting.toString());
     }
   }
 
@@ -213,6 +219,8 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     log.info("New SolrCore provided");
 
     this.core = core;
+
+//    core.getUpdateProcessingChain(null).getProcessors().st
 
     if (importer != null) {
       log.info("Setting new core in importer");

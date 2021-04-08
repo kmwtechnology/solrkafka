@@ -16,6 +16,7 @@ import org.apache.solr.common.cloud.DocCollection;
 import org.apache.solr.common.cloud.Replica;
 import org.apache.solr.common.cloud.Slice;
 import org.apache.solr.common.params.MultiMapSolrParams;
+import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.common.util.NamedList;
 import org.apache.solr.core.SolrCore;
 import org.apache.solr.core.SolrEventListener;
@@ -24,6 +25,11 @@ import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.search.SolrIndexSearcher;
 import org.apache.solr.update.AddUpdateCommand;
 import org.apache.solr.update.UpdateHandler;
+import org.apache.solr.update.processor.DistributedUpdateProcessorFactory;
+import org.apache.solr.update.processor.DistributedZkUpdateProcessor;
+import org.apache.solr.update.processor.UpdateRequestProcessor;
+import org.apache.solr.update.processor.UpdateRequestProcessorChain;
+import org.apache.solr.update.processor.UpdateRequestProcessorFactory;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -42,7 +48,7 @@ public class KafkaImporter implements Runnable, Importer {
 
   private volatile SolrCore core;
 
-  private volatile UpdateHandler updateHandler;
+  private volatile UpdateRequestProcessor updateHandler;
 
   private final Consumer<String, SolrDocument> consumer;
 
@@ -75,44 +81,34 @@ public class KafkaImporter implements Runnable, Importer {
   public KafkaImporter(SolrCore core, boolean readFullyAndExit, boolean fromBeginning, long commitInterval,
                        boolean ignoreShardRouting) {
     this.core = core;
-    this.updateHandler = core.getUpdateHandler();
     this.ignoreShardRouting = ignoreShardRouting;
+    this.updateHandler = createUpdateHandler();
     this.readFullyAndExit = readFullyAndExit;
     this.commitInterval = Duration.ofMillis(commitInterval);
     rewind = fromBeginning;
-    setUpdateHandlerCallback();
     this.consumer = createConsumer();
     thread = new Thread(this);
   }
 
-  /**
-   * Sets the {@link UpdateHandler}'s callback. Used for committing offsets when the Solr index is committed.
-   */
-  private void setUpdateHandlerCallback() {
-    log.info("Registering UpdateHandler callback");
-    updateHandler.registerCommitCallback(new SolrEventListener() {
-      @Override
-      public void postCommit() {
-        log.debug("UpdateHandler postCommit callback");
-        if (isClosed) {
-          return;
-        }
-        if (!status.isOperational() && thread != null && thread.isAlive()) {
-          log.info("Shutting down Importer");
-          stop();
-        }
+  private UpdateRequestProcessor createUpdateHandler() {
+    SolrParams params = new MultiMapSolrParams(Map.of());
+    UpdateRequestProcessorChain chain = core.getUpdateProcessorChain(params);
+    if (!ignoreShardRouting) {
+      return chain.createProcessor(new LocalSolrQueryRequest(core, params), null);
+    }
+
+    List<UpdateRequestProcessorFactory> factories = chain.getProcessors();
+    for (int i = 0; i < factories.size(); i++) {
+      UpdateRequestProcessorFactory factory = factories.get(i);
+      if (factory instanceof DistributedUpdateProcessorFactory) {
+        factory = new DistributedShardUpdateProcessor.DistributedShardUpdateProcessorFactory(true);
+        factories.set(i, factory);
+        break;
       }
+    }
 
-      @Override
-      public void postSoftCommit() { }
-
-      @Override
-      public void newSearcher(SolrIndexSearcher newSearcher, SolrIndexSearcher currentSearcher) { }
-
-      @Override
-      public void init(NamedList args) { }
-    });
-
+    return new UpdateRequestProcessorChain(factories, core)
+        .createProcessor(new LocalSolrQueryRequest(core, params), null);
   }
 
   @Override
@@ -170,7 +166,7 @@ public class KafkaImporter implements Runnable, Importer {
   @Override
   public void setNewCore(SolrCore core) {
     this.core = core;
-    this.updateHandler = core.getUpdateHandler();
+    this.updateHandler = createUpdateHandler();
   }
 
   @Override
@@ -212,13 +208,13 @@ public class KafkaImporter implements Runnable, Importer {
           request.setJSON(record.value());
           AddUpdateCommand add = new AddUpdateCommand(request);
           add.solrDoc = DocumentData.convertToInputDoc(record.value());
-          if (addToThisShard(add)) {
-            try {
-              updateHandler.addDoc(add);
-            } catch (IOException e) {
-              log.error("Couldn't add solr doc...", e);
-              status = Status.ERROR;
-            }
+//          if (addToThisShard(add)) {
+          try {
+            updateHandler.processAdd(add);
+          } catch (IOException e) {
+            log.error("Couldn't add solr doc...", e);
+            status = Status.ERROR;
+//            }
           }
         }
 
