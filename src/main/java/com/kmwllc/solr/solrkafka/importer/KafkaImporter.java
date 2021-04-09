@@ -35,6 +35,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.TemporalAmount;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -97,7 +98,7 @@ public class KafkaImporter implements Runnable, Importer {
       return chain.createProcessor(new LocalSolrQueryRequest(core, params), null);
     }
 
-    List<UpdateRequestProcessorFactory> factories = chain.getProcessors();
+    List<UpdateRequestProcessorFactory> factories = new ArrayList<>(chain.getProcessors());
     for (int i = 0; i < factories.size(); i++) {
       UpdateRequestProcessorFactory factory = factories.get(i);
       if (factory instanceof DistributedUpdateProcessorFactory) {
