@@ -28,6 +28,10 @@ import org.apache.solr.util.plugin.SolrCoreAware;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * A {@link RequestHandlerBase} for indexing {@link AddUpdateCommand} documents sent by the
+ * {@link com.kmwllc.solr.solrkafka.handler.request.CustomCommandDistributor} into a shard/replica.
+ */
 public class DistributedCommandHandler extends RequestHandlerBase {
 
   @Override
@@ -40,8 +44,6 @@ public class DistributedCommandHandler extends RequestHandlerBase {
       Iterable<ContentStream> streams = req.getContentStreams();
       if (streams != null) {
         for (ContentStream stream : streams) {
-//          ContentStreamLoader loader = new JavabinLoader();
-//          loader.load(req, rsp, stream, new RunUpdateProcessorFactory().getInstance(req, rsp, null));
           byte[] bytes = stream.getStream().readAllBytes();
           try (JavaBinCodec codec = new JavaBinCodec()) {
             SolrInputDocument doc = (SolrInputDocument) codec.unmarshal(bytes);
