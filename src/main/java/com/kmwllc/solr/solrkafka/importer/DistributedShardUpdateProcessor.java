@@ -62,7 +62,7 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
     zkController = cc.getZkController();
     collection = cloudDesc.getCollectionName();
 
-    cmdDistributor = new CustomCommandDistributor(cc.getUpdateShardHandler());
+    cmdDistributor = new CustomCommandDistributor();
     this.ignoreShardRouting = ignoreShardRouting;
   }
 
@@ -133,9 +133,6 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
       String leaderReplicaName = "";
       for (Slice slice : slices) {
         Replica leaderReplica = zkController.getZkStateReader().getLeaderRetry(collection, slice.getName());
-        if (slice.equals(mySlice)) {
-          leaderReplicaName = leaderReplica.getName();
-        }
         isLeader = leaderReplica.getName().equals(cloudDesc.getCoreNodeName());
         if (!isLeader) {
           isSubShardLeader = amISubShardLeader(coll, slice, id, doc);
@@ -143,6 +140,9 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
             shardId = cloudDesc.getShardId();
             leaderReplica = zkController.getZkStateReader().getLeaderRetry(collection, shardId);
           }
+        }
+        if (slice.equals(mySlice)) {
+          leaderReplicaName = leaderReplica.getName();
         }
         leaders.put(leaderReplica.getName(), leaderReplica);
       }
@@ -157,7 +157,7 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
         // we are coming from the leader, just go local - add no urls
         forwardToLeader = false;
         return null;
-      } else if (isLeader || isSubShardLeader) {
+      } else {
         // that means I want to forward onto my replicas...
         // so get the replicas...
         forwardToLeader = false;
@@ -182,7 +182,7 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
           log.info("test.distrib.skip.servers was found and contains:{}", skipListSet);
         }
 
-        List<SolrCmdDistributor.Node> nodes = new ArrayList<>(replicas.size());
+        List<SolrCmdDistributor.Node> nodes = new ArrayList<>(replicas.values().stream().mapToInt(List::size).sum());
         skippedCoreNodeNames = new HashSet<>();
         for (String shard : replicas.keySet()) {
           ZkShardTerms zkShardTerms = zkController.getShardTerms(collection, shard);
@@ -205,12 +205,6 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
           }
         }
         return nodes;
-      } else {
-        // I need to forward on to the leader...
-        forwardToLeader = true;
-        return leaders.values().stream().map(replica ->
-            new SolrCmdDistributor.ForwardNode(new ZkCoreNodeProps(replica), zkController.getZkStateReader(),
-                collection, replica.getSlice(), maxRetriesOnForward)).collect(Collectors.toList());
       }
 
     } catch (InterruptedException e) {
@@ -246,8 +240,6 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
 
   @Override
   protected void doDistribFinish() {
-    cmdDistributor.finish();
-
     if (!ignoreShardRouting) {
       super.doDistribFinish();
       return;
@@ -284,7 +276,7 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
         params.set(DISTRIB_FROM, ZkCoreNodeProps.getCoreUrl(
             zkController.getBaseUrl(), req.getCore().getName()));
         params.set(DISTRIB_FROM_PARENT, cloudDesc.getShardId());
-        cmdDistributor.distribAdd(cmd, subShardLeaders, params, true);
+        cmdDistributor.distribAdd(cmd, subShardLeaders, params);
       }
       final List<SolrCmdDistributor.Node> nodesByRoutingRules = getNodesByRoutingRules(clusterState, coll, cmd.getIndexedIdStr(), cmd.getSolrInputDocument());
       if (nodesByRoutingRules != null && !nodesByRoutingRules.isEmpty())  {
@@ -294,7 +286,7 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
             zkController.getBaseUrl(), req.getCore().getName()));
         params.set(DISTRIB_FROM_COLLECTION, collection);
         params.set(DISTRIB_FROM_SHARD, cloudDesc.getShardId());
-        cmdDistributor.distribAdd(cmd, nodesByRoutingRules, params, true);
+        cmdDistributor.distribAdd(cmd, nodesByRoutingRules, params);
       }
     }
 
@@ -321,9 +313,9 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
         // and the current in-place update (that depends on the previous update), if reordered
         // in the stream, can result in the current update being bottled up behind the previous
         // update in the stream and can lead to degraded performance.
-        cmdDistributor.distribAdd(cmd, nodes, params, true, rollupReplicationTracker, leaderReplicationTracker);
+        cmdDistributor.distribAdd(cmd, nodes, params);
       } else {
-        cmdDistributor.distribAdd(cmd, nodes, params, false, rollupReplicationTracker, leaderReplicationTracker);
+        cmdDistributor.distribAdd(cmd, nodes, params);
       }
     }
   }

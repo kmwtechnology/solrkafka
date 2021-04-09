@@ -87,7 +87,7 @@ public class KafkaImporter implements Runnable, Importer {
     this.commitInterval = Duration.ofMillis(commitInterval);
     rewind = fromBeginning;
     this.consumer = createConsumer();
-    thread = new Thread(this);
+    thread = new Thread(this, "KafkaImporter Async Runnable");
   }
 
   private UpdateRequestProcessor createUpdateHandler() {
