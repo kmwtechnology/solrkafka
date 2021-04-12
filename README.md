@@ -22,11 +22,10 @@ Start Kafka and Zookeeper (Zookeeper must be started before Kafka).
 
 #### Create the Topic
 
-The `KafkaDataSource` uses the `query` property set in conf/solr/conf/kafka-data-config.xml to determine which
-topic to use. The topic name will be provided to the plugin in your solrconfig.xml.
-
 To ensure a topic with that name has been created, run the following command:
 `<kafka_install>/bin/kafka-topics.sh --create --topic <topic_name> --bootstrap-server localhost:9092`.
+
+The topic name will be provided to the plugin in a later step.
 
 ### Start Solr
 
@@ -42,8 +41,10 @@ the `-a "<your_stuff_here>"` flag.
 ### Seed With Test Data
 
 In the test directory of this project, there's a `SolrDocumentKafkaPublisher` class, which publishes documents 
-that are processable by the SolrKafka plugin. Be sure to use that to create documents to import, since special
-characters are used in serialization/deserialization.
+that are processable by the SolrKafka plugin. Be sure to use that test to create documents to import, since special
+characters are used in serialization/deserialization. If JSON documents are going to be imported instead, 
+the `JsonKafkaPublisher` can be used instead, or custom documents can be created using your own method. JSON documents
+can only be used with the request handler method, so make sure you use the correct publisher for your use case.
 
 ## Solr Request Handler Method
 
@@ -76,7 +77,8 @@ useful information will be returned. -->
                 class="com.kmwllc.solr.solrkafka.handler.requesthandler.SolrKafkaStatusRequestHandler"
                 startup="lazy" />
 <!-- Creates the distrib handler. This is only required if "ignoreShardRouting" is true. Handles inserting the 
-documents on all cores except for the core that the /kafka importer is running on. -->
+documents on all cores except for the core that the /kafka importer is running on. Note: the name cannot be 
+changed in this case. -->
 <requestHandler name="/kafka/distrib"
                 class="com.kmwllc.solr.solrkafka.handler.requesthandler.DistributedCommandHandler"
                 startup="lazy" />
@@ -84,10 +86,10 @@ documents on all cores except for the core that the /kafka importer is running o
 
 ### Create Your Collection Schema
 
-> Note: as of now, the schema MUST be completed before the importer is run, or it will leave your collection schema
-> in an inconsistent state.
+For tests, send this body in a request to `POST <solr_endpoint>/solr/<collection>/schema` to update your Solr collection's schema
+if you want an explicitly defined schema:
 
-For tests, send this body in a request to `POST <solr_endpoint>/solr/<collection>/schema` to update your Solr collection's schema:
+> Note: the schema can also be dynamically created from input documents, so this step is not necessary anymore.
 
 ```json
 {
@@ -153,10 +155,20 @@ should be started using the explicit collection name with core identifier (e.g.
 
 #### Distrib Handler
 
+This handler is only required if you're using the `ignoreShardRouting` configuration to send documents to all shards.
+If it is not being used, then feel free to omit this handler.
+
 This is an internal handler used for distributing the document to all shards and replicas other than the core it was
-initially indexed on. This handler __SHOULD NOT__ be used by anything other than this importer.
+initially indexed on. This handler __SHOULD NOT__ be used by anything other than this importer. Be sure you don't
+change the name of the data handler's name in your solrconfig.xml, it is currently hard coded in the plugin's
+configuration.
 
 ## Running the (old) DataImportHandler Method
+
+### Set Up kafka-data-config.xml
+
+The `KafkaDataSource` uses the `query` property set in conf/solr/conf/kafka-data-config.xml to determine which
+topic to use. The topic name should be the same as the one you created previously.
 
 ### Run the Importer
 

@@ -21,12 +21,20 @@ import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.update.AddUpdateCommand;
 import org.apache.solr.update.SolrCoreState;
+import org.apache.solr.update.processor.AddSchemaFieldsUpdateProcessorFactory;
+import org.apache.solr.update.processor.DistributedUpdateProcessorFactory;
+import org.apache.solr.update.processor.LogUpdateProcessorFactory;
 import org.apache.solr.update.processor.RunUpdateProcessorFactory;
 import org.apache.solr.update.processor.UpdateRequestProcessor;
+import org.apache.solr.update.processor.UpdateRequestProcessorChain;
+import org.apache.solr.update.processor.UpdateRequestProcessorFactory;
 import org.apache.solr.util.plugin.SolrCoreAware;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * A {@link RequestHandlerBase} for indexing {@link AddUpdateCommand} documents sent by the
@@ -51,7 +59,10 @@ public class DistributedCommandHandler extends RequestHandlerBase {
                 new MultiMapSolrParams(Map.of())));
             cmd.solrDoc = doc;
             cmd.setIndexedId(new BytesRef(req.getParams().get("docId")));
-            req.getCore().getUpdateHandler().addDoc(cmd);
+            final List<UpdateRequestProcessorFactory> factories = new ArrayList<>(req.getCore().getUpdateProcessorChain(
+                new MultiMapSolrParams(Map.of())).getProcessors()).stream()
+                .filter(fac -> !(fac instanceof DistributedUpdateProcessorFactory)).collect(Collectors.toList());
+            new UpdateRequestProcessorChain(factories, req.getCore()).createProcessor(req, rsp).processAdd(cmd);
           }
         }
       }

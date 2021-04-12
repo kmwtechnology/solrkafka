@@ -326,7 +326,6 @@ public class KafkaImporter implements Runnable, Importer {
     if (slice == null) {
       // No slice found.  Most strict routers will have already thrown an exception, so a null return is
       // a signal to use the slice of this core.
-      // TODO: what if this core is not in the targeted collection?
       String shardId = cloudDesc.getShardId();
       slice = coll.getSlice(shardId);
       if (slice == null) {
