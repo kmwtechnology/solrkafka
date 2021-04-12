@@ -21,7 +21,7 @@ public class SolrKafkaStatusRequestHandler extends RequestHandlerBase {
     ResponseBuilder rb = new ResponseBuilder(req, rsp, new ArrayList<>());
 
     rsp.add("status",
-        handler == null ? "NOT_INITIALIZED" : handler.getStatus());
+        handler == null ? "NOT_INITIALIZED" : handler.getStatus().name());
     if (handler != null && handler.isThreadAlive()) {
       Map<String, Long> consumerGroupLag = handler.getConsumerGroupLag();
       rsp.add("consumer_group_lag", consumerGroupLag);

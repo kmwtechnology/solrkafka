@@ -30,7 +30,30 @@ public class SolrDocumentKafkaPublisher {
 
 	public static void main(String[] args) throws Exception {
 		SolrDocumentKafkaPublisher pub = new SolrDocumentKafkaPublisher();
-		pub.runProducer();
+//		pub.runProducer();
+		pub.runShardProducer();
+	}
+
+	private void runShardProducer() throws Exception {
+		final Producer<String, SolrDocument> producer = createProducer();
+		long time = System.currentTimeMillis();
+		final String[] ids = new String[] {"doc_4e1dd29c-85fc-4221-a25a-b84fcf24f4af",
+				"doc_ff595762-b312-489a-8720-a8157855f781"};
+		try {
+			for (String id : ids) {
+				SolrDocument doc = createSampleDocument(id);
+				ProducerRecord<String, SolrDocument> record = new ProducerRecord<String, SolrDocument>(TOPIC, id, doc);
+				// It's probably faster if we just send and don't bother with the get.  maybe just do it on the last one?
+				// producer.send(record);
+				producer.send(record).get();
+				//log.info("sent record(key={} value={}) meta(partition={}, offset={}) time={}", record.key(), record.value(), metadata.partition(), metadata.offset(), elapsedTime);
+			}
+		} finally {
+			producer.flush();
+			producer.close();
+		}
+		long elapsedTime = System.currentTimeMillis() - time;
+		System.out.println("Sent " + ids.length + " Rate " + 1000.0 * elapsedTime);
 	}
 
 	private static Producer<String, SolrDocument> createProducer() {
