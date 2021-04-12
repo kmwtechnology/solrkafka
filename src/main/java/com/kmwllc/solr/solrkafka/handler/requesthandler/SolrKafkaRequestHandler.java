@@ -72,6 +72,13 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       return;
     }
 
+    if (core.getCoreDescriptor().getCloudDescriptor() == null && this.ignoreShardRouting) {
+      String msg = "Ignore shard routing set to true, but cluster is not running in cloud mode";
+      rsp.add("message", msg + ". Run in cloud mode to use this feature.");
+      rsp.setException(new IllegalStateException(msg));
+      return;
+    }
+
     boolean isLeader;
 
     // Determines if this is the current leader and adds that information to the response
@@ -249,7 +256,8 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   }
 
   /**
-   * Determines if the given {@link SolrCore} is the leader of its replicas.
+   * Determines if the given {@link SolrCore} is the leader of its replicas. If Solr is not run in cloud mode,
+   * it will always return true.
    *
    * @param core The {@link SolrCore} to check
    * @return {@code true} if the core is the leader of its replicas
@@ -257,7 +265,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
    */
   public static boolean isCoreLeader(SolrCore core) throws InterruptedException {
     CloudDescriptor cloud = core.getCoreDescriptor().getCloudDescriptor();
-    return core.getCoreContainer().getZkController().getZkStateReader().getLeaderRetry(
+    return cloud == null || core.getCoreContainer().getZkController().getZkStateReader().getLeaderRetry(
         cloud.getCollectionName(), cloud.getShardId()).getName().equals(cloud.getCoreNodeName());
   }
 
