@@ -1,6 +1,7 @@
 package com.kmwllc.solr.solrkafka.importer;
 
 import com.kmwllc.solr.solrkafka.datatype.DocumentData;
+import com.kmwllc.solr.solrkafka.datatype.SerdeFactory;
 import com.kmwllc.solr.solrkafka.datatype.solr.SolrDocumentDeserializer;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.TopicPartition;
@@ -13,20 +14,15 @@ import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.cloud.ClusterState;
 import org.apache.solr.common.cloud.DocCollection;
-import org.apache.solr.common.cloud.Replica;
 import org.apache.solr.common.cloud.Slice;
 import org.apache.solr.common.params.MultiMapSolrParams;
 import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.common.util.NamedList;
 import org.apache.solr.core.SolrCore;
-import org.apache.solr.core.SolrEventListener;
 import org.apache.solr.request.LocalSolrQueryRequest;
 import org.apache.solr.request.SolrQueryRequest;
-import org.apache.solr.search.SolrIndexSearcher;
 import org.apache.solr.update.AddUpdateCommand;
-import org.apache.solr.update.UpdateHandler;
 import org.apache.solr.update.processor.DistributedUpdateProcessorFactory;
-import org.apache.solr.update.processor.DistributedZkUpdateProcessor;
 import org.apache.solr.update.processor.UpdateRequestProcessor;
 import org.apache.solr.update.processor.UpdateRequestProcessorChain;
 import org.apache.solr.update.processor.UpdateRequestProcessorFactory;
@@ -37,7 +33,6 @@ import java.time.Instant;
 import java.time.temporal.TemporalAmount;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,7 +48,7 @@ public class KafkaImporter implements Runnable, Importer {
   private volatile UpdateRequestProcessor updateHandler;
   private final Consumer<String, SolrDocument> consumer;
   private final Duration pollTimeout = Duration.ofMillis(1000);
-  private static final NamedList SOLR_REQUEST_ARGS = new NamedList();
+  private static final NamedList<String> SOLR_REQUEST_ARGS = new NamedList<>();
   private final Thread thread;
   private volatile Status status = Status.NOT_STARTED;
   private final boolean readFullyAndExit;
@@ -63,6 +58,7 @@ public class KafkaImporter implements Runnable, Importer {
   private final Map<String, Long> consumerGroupLag = new HashMap<>();
   private final boolean ignoreShardRouting;
   private final String topicName;
+  private final String dataType;
 
   static {
     SOLR_REQUEST_ARGS.add("commitWithin", "1000");
@@ -78,7 +74,7 @@ public class KafkaImporter implements Runnable, Importer {
    * @param ignoreShardRouting {@code true} if all documents should be added to every shard
    */
   public KafkaImporter(SolrCore core, String topicName, boolean readFullyAndExit, boolean fromBeginning, long commitInterval,
-                       boolean ignoreShardRouting) {
+                       boolean ignoreShardRouting, String dataType) {
     this.topicName = topicName;
     this.core = core;
     this.ignoreShardRouting = ignoreShardRouting;
@@ -86,6 +82,7 @@ public class KafkaImporter implements Runnable, Importer {
     this.readFullyAndExit = readFullyAndExit;
     this.commitInterval = Duration.ofMillis(commitInterval);
     rewind = fromBeginning;
+    this.dataType = dataType;
     this.consumer = createConsumer();
     thread = new Thread(this, "KafkaImporter Async Runnable");
   }
@@ -292,7 +289,7 @@ public class KafkaImporter implements Runnable, Importer {
     props.putIfAbsent(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
     props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, core.getName());
     props.putIfAbsent(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-    props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SolrDocumentDeserializer.class.getName());
+    props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SerdeFactory.getDeserializer(dataType).getName());
     props.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
     props.putIfAbsent(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 16000);
 

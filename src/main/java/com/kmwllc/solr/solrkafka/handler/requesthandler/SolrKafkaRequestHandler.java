@@ -193,7 +193,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     } else {
       log.info("Creating KafkaImporter Importer type");
       importer = new KafkaImporter(core, topicName, readFullyAndExit, fromBeginning, commitInterval,
-          ignoreShardRouting);
+          ignoreShardRouting, incomingDataType);
     }
 
     // Sets up the status handler and starts the importer
