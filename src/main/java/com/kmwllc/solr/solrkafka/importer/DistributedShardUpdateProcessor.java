@@ -99,6 +99,9 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
     return ignoreShardRouting;
   }
 
+  /**
+   * Most of this copied from {@link DistributedZkUpdateProcessor#setupRequest(String, SolrInputDocument, String)}.
+   */
   @Override
   protected List<SolrCmdDistributor.Node> setupRequest(String id, SolrInputDocument doc, String route) {
     if (!ignoreShardRouting) {
@@ -233,7 +236,8 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
   }
 
   /**
-   * Make sure Zookeeper agrees with our expected status.
+   * Make sure Zookeeper agrees with our expected status. Copied from bottom part of DistributedZkUpdateProcessor's
+   * doDefensiveChecks method.
    */
   private void doDefensiveChecks() {
     String from = req.getParams().get(DISTRIB_FROM);
@@ -267,6 +271,8 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
       return;
     }
 
+    // Copied from DistributedZkUpdateProcessor
+
     clusterState = zkController.getClusterState();
 
     boolean shouldUpdateTerms = isLeader && isIndexChanged;
@@ -290,6 +296,7 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
 
     // Rest copied directly from DistributedZkUpdateProcessor (minus the cmdDistributor change)
 
+    // TODO: clean this up
     if (isLeader && !isSubShardLeader)  {
       DocCollection coll = clusterState.getCollection(collection);
       List<SolrCmdDistributor.Node> subShardLeaders = getSubShardLeaders(coll, cloudDesc.getShardId(), cmd.getIndexedIdStr(), cmd.getSolrInputDocument());
