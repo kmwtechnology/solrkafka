@@ -1,5 +1,7 @@
 package com.kmwllc.solr.solrkafka.handler.requesthandler;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.lucene.util.BytesRef;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
@@ -26,6 +28,7 @@ import java.util.stream.Collectors;
  * {@link com.kmwllc.solr.solrkafka.handler.request.CustomCommandDistributor} into a shard/replica.
  */
 public class DistributedCommandHandler extends RequestHandlerBase {
+  private static final Logger log = LogManager.getLogger(DistributedCommandHandler.class);
 
   @Override
   public void handleRequestBody(SolrQueryRequest req, SolrQueryResponse rsp) throws Exception {
@@ -37,6 +40,7 @@ public class DistributedCommandHandler extends RequestHandlerBase {
       Iterable<ContentStream> streams = req.getContentStreams();
       if (streams != null) {
         for (ContentStream stream : streams) {
+          log.info("Processing incoming doc on core {}", req.getCore().getName());
           byte[] bytes = stream.getStream().readAllBytes();
           try (JavaBinCodec codec = new JavaBinCodec()) {
             SolrInputDocument doc = (SolrInputDocument) codec.unmarshal(bytes);

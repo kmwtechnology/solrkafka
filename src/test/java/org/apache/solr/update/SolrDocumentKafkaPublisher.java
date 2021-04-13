@@ -28,10 +28,11 @@ public class SolrDocumentKafkaPublisher {
 	private final static String CLIENT_ID = "KafkaExampleProducer";
 	public int sendMessageCount = 1000000;
 
+
 	public static void main(String[] args) throws Exception {
 		SolrDocumentKafkaPublisher pub = new SolrDocumentKafkaPublisher();
-//		pub.runProducer();
-		pub.runShardProducer();
+		pub.runProducer();
+//		pub.runShardProducer();
 	}
 
 	private void runShardProducer() throws Exception {

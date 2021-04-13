@@ -168,6 +168,9 @@ public class KafkaImporter implements Runnable {
   public void run() {
     log.info("Starting Kafka consumer");
 
+    long startTime = System.currentTimeMillis();
+    long docCount = 0;
+    long docCommitInterval = 0;
     Instant prevCommit = Instant.now();
     while (status.isOperational()) {
       if (rewind) {
@@ -206,6 +209,8 @@ public class KafkaImporter implements Runnable {
           // Attempt to add the update
           try {
             updateHandler.processAdd(add);
+            docCount++;
+            docCommitInterval++;
           } catch (IOException e) {
             log.error("Couldn't add solr doc...", e);
             status = Status.ERROR;
@@ -223,8 +228,12 @@ public class KafkaImporter implements Runnable {
 
       // If commitInterval has elapsed, commit back to Kafka
       if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
+        long interval = System.currentTimeMillis() - startTime;
+        log.info("\nAverage doc processing time: {}\nTotal elapsed time: {}\nTotal docs processed: {}\nDocs processed in commit interval: {}",
+            interval / docCount, interval, docCount, docCommitInterval);
         commit();
         prevCommit = Instant.now();
+        docCommitInterval = 0;
       }
     }
 

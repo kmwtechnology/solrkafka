@@ -280,60 +280,14 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
       return;
     }
 
-    // Rest copied directly from DistributedZkUpdateProcessor (minus the cmdDistributor change)
-
-    // TODO: clean this up
-    if (isLeader && !isSubShardLeader)  {
-      DocCollection coll = clusterState.getCollection(collection);
-      List<SolrCmdDistributor.Node> subShardLeaders = getSubShardLeaders(coll, cloudDesc.getShardId(), cmd.getIndexedIdStr(), cmd.getSolrInputDocument());
-      // the list<node> will actually have only one element for an add request
-      if (subShardLeaders != null && !subShardLeaders.isEmpty()) {
-        ModifiableSolrParams params = new ModifiableSolrParams(filterParams(req.getParams()));
-        params.set(DISTRIB_UPDATE_PARAM, DistribPhase.FROMLEADER.toString());
-        params.set(DISTRIB_FROM, ZkCoreNodeProps.getCoreUrl(
-            zkController.getBaseUrl(), req.getCore().getName()));
-        params.set(DISTRIB_FROM_PARENT, cloudDesc.getShardId());
-        cmdDistributor.distribAdd(cmd, subShardLeaders);
-      }
-      final List<SolrCmdDistributor.Node> nodesByRoutingRules = getNodesByRoutingRules(clusterState, coll, cmd.getIndexedIdStr(), cmd.getSolrInputDocument());
-      if (nodesByRoutingRules != null && !nodesByRoutingRules.isEmpty())  {
-        ModifiableSolrParams params = new ModifiableSolrParams(filterParams(req.getParams()));
-        params.set(DISTRIB_UPDATE_PARAM, DistribPhase.FROMLEADER.toString());
-        params.set(DISTRIB_FROM, ZkCoreNodeProps.getCoreUrl(
-            zkController.getBaseUrl(), req.getCore().getName()));
-        params.set(DISTRIB_FROM_COLLECTION, collection);
-        params.set(DISTRIB_FROM_SHARD, cloudDesc.getShardId());
-        cmdDistributor.distribAdd(cmd, nodesByRoutingRules);
-      }
-    }
+    // very different from DistributedZkUpdateProcessor because we don't care about limiting shards/subshards
 
     if (nodes != null) {
       ModifiableSolrParams params = new ModifiableSolrParams(filterParams(req.getParams()));
-      params.set(DISTRIB_UPDATE_PARAM,
-          (isLeader || isSubShardLeader ?
-              DistribPhase.FROMLEADER.toString() :
-              DistribPhase.TOLEADER.toString()));
       params.set(DISTRIB_FROM, ZkCoreNodeProps.getCoreUrl(
           zkController.getBaseUrl(), req.getCore().getName()));
 
-      if (req.getParams().get(UpdateRequest.MIN_REPFACT) != null) {
-        // TODO: Kept for rolling upgrades only. Should be removed in Solr 9
-        params.set(UpdateRequest.MIN_REPFACT, req.getParams().get(UpdateRequest.MIN_REPFACT));
-      }
-
-      if (cmd.isInPlaceUpdate()) {
-        params.set(DISTRIB_INPLACE_PREVVERSION, String.valueOf(cmd.prevVersion));
-
-        // Use synchronous=true so that a new connection is used, instead
-        // of the update being streamed through an existing streaming client.
-        // When using a streaming client, the previous update
-        // and the current in-place update (that depends on the previous update), if reordered
-        // in the stream, can result in the current update being bottled up behind the previous
-        // update in the stream and can lead to degraded performance.
-        cmdDistributor.distribAdd(cmd, nodes);
-      } else {
-        cmdDistributor.distribAdd(cmd, nodes);
-      }
+      cmdDistributor.distribAdd(cmd, nodes);
     }
   }
 }
