@@ -23,8 +23,14 @@ import java.util.List;
 /**
  * A class for distributing a command to the /kafka/distrib request handler for all nodes provided.
  */
-public class CustomCommandDistributor {
+public class CustomCommandDistributor implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
+  private final CloseableHttpClient client = HttpClients.createDefault();
+
+  @Override
+  public void close() throws IOException {
+    client.close();
+  }
 
   /**
    * Distributes the document contained in the {@link AddUpdateCommand} to each of the nodes provided.
@@ -35,8 +41,7 @@ public class CustomCommandDistributor {
    */
   public void distribAdd(AddUpdateCommand cmd, List<SolrCmdDistributor.Node> nodes) throws IOException {
     for (SolrCmdDistributor.Node node : nodes) {
-      try (CloseableHttpClient client = HttpClients.createDefault();
-           JavaBinCodec codec = new JavaBinCodec();
+      try (JavaBinCodec codec = new JavaBinCodec();
            ByteArrayOutputStream os = new ByteArrayOutputStream()) {
         SolrInputDocument doc = cmd.solrDoc;
         codec.marshal(doc, os);
