@@ -1,10 +1,6 @@
 package com.kmwllc.solr.solrkafka.handler.requesthandler;
 
-import com.kmwllc.solr.solrkafka.importer.Importer;
 import com.kmwllc.solr.solrkafka.importer.KafkaImporter;
-import com.kmwllc.solr.solrkafka.importer.SolrDocumentImportHandler;
-import com.kmwllc.solr.solrkafka.handler.consumerhandler.AsyncKafkaConsumerHandler;
-import com.kmwllc.solr.solrkafka.handler.consumerhandler.KafkaConsumerHandler;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.cloud.CloudDescriptor;
@@ -14,7 +10,6 @@ import org.apache.solr.core.CloseHook;
 import org.apache.solr.core.PluginInfo;
 import org.apache.solr.core.SolrCore;
 import org.apache.solr.handler.RequestHandlerBase;
-import org.apache.solr.handler.component.ResponseBuilder;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.security.AuthorizationContext;
@@ -24,22 +19,18 @@ import org.apache.solr.util.circuitbreaker.CircuitBreakerManager;
 import org.apache.solr.util.plugin.PluginInfoInitialized;
 import org.apache.solr.util.plugin.SolrCoreAware;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 
 /**
- * A handler to start (or confirm the start of) the SolrKafka plugin. Creates a new {@link Importer},
+ * A handler to start (or confirm the start of) the SolrKafka plugin. Creates a new {@link KafkaImporter},
  * and begins their processing in a separate thread (so that the request
  * doesn't depend on finishing the import).
  */
 public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrCoreAware, PluginInfoInitialized, PermissionNameProvider {
   private static final Logger log = LogManager.getLogger(SolrKafkaRequestHandler.class);
   private SolrCore core;
-  private Importer importer;
-  private final Properties initProps = new Properties();
+  private KafkaImporter importer;
   private String incomingDataType = "solr";
-  private String consumerType = "simple";
   private long commitInterval = 5000;
   private volatile boolean shouldRun = false;
   private boolean ignoreShardRouting = false;
@@ -51,7 +42,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
 
   /**
    * Handle the request to start the Kafka consumer by ensuring no {@link CircuitBreaker}s have been tripped. If
-   * a {@link SolrDocumentImportHandler} is already running, avoids starting another one and returns an
+   * a consumer is already running, avoids starting another one and returns an
    * 'already running' status.
    *
    * @param req The request received
@@ -59,8 +50,6 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
    */
   @Override
   public void handleRequestBody(SolrQueryRequest req, SolrQueryResponse rsp) {
-    // TODO: is this required?
-    ResponseBuilder rb = new ResponseBuilder(req, rsp, new ArrayList<>());
 
     // Ends this request if a circuit breaker is fired
     CircuitBreakerManager circuitBreakerManager = req.getCore().getCircuitBreakerManager();
@@ -174,8 +163,8 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
    * Sets up and starts a new importer.
    *
    * @param fromBeginning If the {@link org.apache.kafka.clients.consumer.Consumer} should rewind to the beginning
-   * @param readFullyAndExit If the {@link Importer} should exit after receiving no more documents from the
-   * {@link org.apache.kafka.clients.consumer.Consumer} (if the {@link Importer} is paused, does not exit)
+   * @param readFullyAndExit If the {@link KafkaImporter} should exit after receiving no more documents from the
+   * {@link org.apache.kafka.clients.consumer.Consumer} (if the {@link KafkaImporter} is paused, does not exit)
    * @return {@code true} if an importer was created and started, {@link false} if one was already running
    */
   private boolean startImporter(boolean fromBeginning, boolean readFullyAndExit) {
@@ -192,16 +181,9 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     }
 
     // Create the importer
-    if (!consumerType.equalsIgnoreCase("simple")) {
-      log.info("Creating {} KafkaConsumerHandler for SolrDocumentImportHandler Importer type", consumerType);
-      KafkaConsumerHandler consumerHandler = KafkaConsumerHandler.getInstance(consumerType,
-          initProps, topicName, fromBeginning, readFullyAndExit, incomingDataType);
-      importer = new SolrDocumentImportHandler(core, consumerHandler, commitInterval);
-    } else {
-      log.info("Creating KafkaImporter Importer type");
-      importer = new KafkaImporter(core, topicName, readFullyAndExit, fromBeginning, commitInterval,
-          ignoreShardRouting, incomingDataType);
-    }
+    importer = new KafkaImporter(core, topicName, readFullyAndExit, fromBeginning, commitInterval,
+        ignoreShardRouting, incomingDataType);
+
 
     // Sets up the status handler and starts the importer
     SolrKafkaStatusRequestHandler.setHandler(importer);
@@ -231,16 +213,12 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     log.info("Initializing SolrKafkaRequestHandler with {} configs", info.initArgs);
 
     // Sets up configurations from solrconfig.xml (the defaults section from the requestHandler setup)
-    Object consumerType = info.initArgs.findRecursive("defaults", "consumerType");
     Object incomingDataType = info.initArgs.findRecursive("defaults", "incomingDataType");
     Object commitInterval = info.initArgs.findRecursive("defaults", "commitInterval");
     Object ignoreShardRouting = info.initArgs.findRecursive("defaults", "ignoreShardRouting");
     Object topicName = info.initArgs.findRecursive("defaults", "topicName");
 
     // If the values from the defaults section are present, override
-    if (consumerType != null) {
-      this.consumerType = consumerType.toString();
-    }
     if (incomingDataType != null) {
       this.incomingDataType = incomingDataType.toString();
     }

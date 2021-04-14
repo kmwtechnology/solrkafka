@@ -1,20 +1,13 @@
 package com.kmwllc.solr.solrkafka.importer;
 
-import com.kmwllc.solr.solrkafka.datatype.DocumentData;
 import com.kmwllc.solr.solrkafka.datatype.SerdeFactory;
-import com.kmwllc.solr.solrkafka.datatype.solr.SolrDocumentDeserializer;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.solr.cloud.CloudDescriptor;
-import org.apache.solr.cloud.ZkController;
 import org.apache.solr.common.SolrDocument;
-import org.apache.solr.common.SolrException;
-import org.apache.solr.common.cloud.ClusterState;
-import org.apache.solr.common.cloud.DocCollection;
-import org.apache.solr.common.cloud.Slice;
+import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.params.MultiMapSolrParams;
 import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.common.util.NamedList;
@@ -31,18 +24,13 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.TemporalAmount;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 
 /**
  * Imports documents from a Kafka {@link Consumer} in a separate thread and adds them to Solr using the same
  * functionality as the (soon-to-be-deprecated) Document Import Handler.
  */
-public class KafkaImporter implements Runnable, Importer {
+public class KafkaImporter implements Runnable {
   private static final Logger log = LogManager.getLogger(KafkaImporter.class);
   private volatile SolrCore core;
   private volatile UpdateRequestProcessor updateHandler;
@@ -78,7 +66,7 @@ public class KafkaImporter implements Runnable, Importer {
     this.topicName = topicName;
     this.core = core;
     this.ignoreShardRouting = ignoreShardRouting;
-    this.updateHandler = createUpdateHandler();
+    this.updateHandler = createUpdateHandler(core, ignoreShardRouting);
     this.readFullyAndExit = readFullyAndExit;
     this.commitInterval = Duration.ofMillis(commitInterval);
     rewind = fromBeginning;
@@ -94,7 +82,7 @@ public class KafkaImporter implements Runnable, Importer {
    *
    * @return A {@link UpdateRequestProcessor} instance
    */
-  private UpdateRequestProcessor createUpdateHandler() {
+  private static UpdateRequestProcessor createUpdateHandler(SolrCore core, boolean ignoreShardRouting) {
     SolrParams params = new MultiMapSolrParams(Map.of());
     UpdateRequestProcessorChain chain = core.getUpdateProcessorChain(params);
     if (!ignoreShardRouting) {
@@ -115,14 +103,12 @@ public class KafkaImporter implements Runnable, Importer {
         .createProcessor(new LocalSolrQueryRequest(core, params), null);
   }
 
-  @Override
   public void startThread() {
     log.info("Starting thread");
     status = Status.RUNNING;
     thread.start();
   }
 
-  @Override
   public void stop() {
     log.info("Stopping importer");
     status = Status.DONE;
@@ -149,37 +135,31 @@ public class KafkaImporter implements Runnable, Importer {
     }
   }
 
-  @Override
   public void pause() {
     if (status.isOperational()) {
       status = Status.PAUSED;
     }
   }
 
-  @Override
   public void resume() {
     if (status.isOperational()){
       status = Status.RUNNING;
     }
   }
 
-  @Override
   public void rewind() {
     rewind = true;
   }
 
-  @Override
   public Status getStatus() {
     return status;
   }
 
-  @Override
   public void setNewCore(SolrCore core) {
     this.core = core;
-    this.updateHandler = createUpdateHandler();
+    this.updateHandler = createUpdateHandler(core, ignoreShardRouting);
   }
 
-  @Override
   public boolean isThreadAlive() {
     return thread != null && thread.isAlive() || !isClosed;
   }
@@ -221,7 +201,7 @@ public class KafkaImporter implements Runnable, Importer {
           SolrQueryRequest request = new LocalSolrQueryRequest(core, SOLR_REQUEST_ARGS);
           request.setJSON(record.value());
           AddUpdateCommand add = new AddUpdateCommand(request);
-          add.solrDoc = DocumentData.convertToInputDoc(record.value());
+          add.solrDoc = convertToInputDoc(record.value());
 
           // Attempt to add the update
           try {
@@ -274,7 +254,6 @@ public class KafkaImporter implements Runnable, Importer {
     }
   }
 
-  @Override
   public Map<String, Long> getConsumerGroupLag() {
     return consumerGroupLag;
   }
@@ -298,41 +277,18 @@ public class KafkaImporter implements Runnable, Importer {
     KafkaConsumer<String, SolrDocument> consumer = new KafkaConsumer<>(props);
     Thread.currentThread().setContextClassLoader(loader);
 
-    // TODO: should this be able to consume from multiple topics?
     consumer.subscribe(Collections.singletonList(topicName));
     return consumer;
   }
 
-  /**
-   * Determine if the provided command should be executed on this shard. If {@link this#ignoreShardRouting} is true,
-   * then the command is immediately executed without performing shard routing checks.
-   *
-   * @param cmd The command to execute
-   * @return true if the command should be executed on this shard
-   */
-  private boolean addToThisShard(AddUpdateCommand cmd) {
-    if (ignoreShardRouting) {
-      return true;
+  public static SolrInputDocument convertToInputDoc(Map<String, Object> doc) {
+    SolrInputDocument inDoc = new SolrInputDocument();
+
+    for (String name : doc.keySet()) {
+      inDoc.addField(name, doc.get(name));
     }
 
-    ZkController zkController = core.getCoreContainer().getZkController();
-    ClusterState clusterState = zkController.getClusterState();
-    CloudDescriptor cloudDesc = core.getCoreDescriptor().getCloudDescriptor();
-    DocCollection coll = clusterState.getCollection(cloudDesc.getCollectionName());
-
-    Slice slice = coll.getRouter().getTargetSlice(cmd.getIndexedIdStr(), cmd.getSolrInputDocument(),
-        null, new MultiMapSolrParams(new HashMap<>()), coll);
-
-    if (slice == null) {
-      // No slice found.  Most strict routers will have already thrown an exception, so a null return is
-      // a signal to use the slice of this core.
-      String shardId = cloudDesc.getShardId();
-      slice = coll.getSlice(shardId);
-      if (slice == null) {
-        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST, "No shard " + shardId + " in " + coll);
-      }
-    }
-
-    return slice.getName().equals(cloudDesc.getShardId());
+    return inDoc;
   }
+
 }
