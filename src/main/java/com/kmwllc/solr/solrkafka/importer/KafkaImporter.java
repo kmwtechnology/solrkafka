@@ -228,7 +228,7 @@ public class KafkaImporter implements Runnable {
 
       // If commitInterval has elapsed, commit back to Kafka
       if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
-        long interval = System.currentTimeMillis() - startTime;
+        double interval = System.currentTimeMillis() - startTime;
         log.info("\nAverage doc processing time: {}\nTotal elapsed time: {}\nTotal docs processed: {}\nDocs processed in commit interval: {}",
             interval / docCount, interval, docCount, docCommitInterval);
         commit();

@@ -18,6 +18,7 @@ import org.apache.solr.update.processor.DistributedUpdateProcessorFactory;
 import org.apache.solr.update.processor.UpdateRequestProcessorChain;
 import org.apache.solr.update.processor.UpdateRequestProcessorFactory;
 
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -41,17 +42,19 @@ public class DistributedCommandHandler extends RequestHandlerBase {
       if (streams != null) {
         for (ContentStream stream : streams) {
           log.info("Processing incoming doc on core {}", req.getCore().getName());
-          byte[] bytes = stream.getStream().readAllBytes();
-          try (JavaBinCodec codec = new JavaBinCodec()) {
-            SolrInputDocument doc = (SolrInputDocument) codec.unmarshal(bytes);
-            AddUpdateCommand cmd = new AddUpdateCommand(new LocalSolrQueryRequest(req.getCore(),
-                new MultiMapSolrParams(Map.of())));
-            cmd.solrDoc = doc;
-            cmd.setIndexedId(new BytesRef(req.getParams().get("docId")));
-            final List<UpdateRequestProcessorFactory> factories = new ArrayList<>(req.getCore().getUpdateProcessorChain(
-                new MultiMapSolrParams(Map.of())).getProcessors()).stream()
-                .filter(fac -> !(fac instanceof DistributedUpdateProcessorFactory)).collect(Collectors.toList());
-            new UpdateRequestProcessorChain(factories, req.getCore()).createProcessor(req, rsp).processAdd(cmd);
+          try (InputStream is = stream.getStream()) {
+            byte[] bytes = is.readAllBytes();
+            try (JavaBinCodec codec = new JavaBinCodec()) {
+              SolrInputDocument doc = (SolrInputDocument) codec.unmarshal(bytes);
+              AddUpdateCommand cmd = new AddUpdateCommand(new LocalSolrQueryRequest(req.getCore(),
+                  new MultiMapSolrParams(Map.of())));
+              cmd.solrDoc = doc;
+              cmd.setIndexedId(new BytesRef(req.getParams().get("docId")));
+              final List<UpdateRequestProcessorFactory> factories = new ArrayList<>(req.getCore().getUpdateProcessorChain(
+                  new MultiMapSolrParams(Map.of())).getProcessors()).stream()
+                  .filter(fac -> !(fac instanceof DistributedUpdateProcessorFactory)).collect(Collectors.toList());
+              new UpdateRequestProcessorChain(factories, req.getCore()).createProcessor(req, rsp).processAdd(cmd);
+            }
           }
         }
       }
