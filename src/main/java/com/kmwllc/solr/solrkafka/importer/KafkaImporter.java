@@ -34,15 +34,11 @@ public class KafkaImporter implements Runnable {
   private static final Logger log = LogManager.getLogger(KafkaImporter.class);
   private volatile SolrCore core;
   private volatile UpdateRequestProcessor updateHandler;
-  private final Consumer<String, SolrDocument> consumer;
   private final Duration pollTimeout = Duration.ofMillis(1000);
   private static final NamedList<String> SOLR_REQUEST_ARGS = new NamedList<>();
   private final Thread thread;
-  private volatile Status status = Status.NOT_STARTED;
-  private final boolean readFullyAndExit;
-  private volatile boolean isClosed = false;
+  private volatile boolean running = false;
   private final TemporalAmount commitInterval;
-  private volatile boolean rewind;
   private final Map<String, Long> consumerGroupLag = new HashMap<>();
   private final boolean ignoreShardRouting;
   private final String topicName;
@@ -56,29 +52,24 @@ public class KafkaImporter implements Runnable {
 
   /**
    * @param core The {@link SolrCore} to add documents to
-   * @param readFullyAndExit {@code true} if this should exit after receiving no documents from Kafka (will not exit if paused)
-   * @param fromBeginning {@code true} if this should start reading from the {@link Consumer}'s beginning
    * @param commitInterval The minimum number of MS between each Kafka offset commit
    * @param ignoreShardRouting {@code true} if all documents should be added to every shard
    */
-  public KafkaImporter(SolrCore core, String topicName, boolean readFullyAndExit, boolean fromBeginning, long commitInterval,
+  public KafkaImporter(SolrCore core, String topicName, long commitInterval,
                        boolean ignoreShardRouting, String dataType) {
     this.topicName = topicName;
     this.core = core;
     this.ignoreShardRouting = ignoreShardRouting;
     this.updateHandler = createUpdateHandler(core, ignoreShardRouting);
-    this.readFullyAndExit = readFullyAndExit;
     this.commitInterval = Duration.ofMillis(commitInterval);
-    rewind = fromBeginning;
     this.dataType = dataType;
-    this.consumer = createConsumer();
     thread = new Thread(this, "KafkaImporter Async Runnable");
   }
 
   /**
    * Creates a {@link UpdateRequestProcessor} based off of the one provided by the {@link SolrCore}. If
    * {@link this#ignoreShardRouting} is {@code true}, then edit the chain provided by the core and insert our own
-   * {@link DistributedShardUpdateProcessor} in place of the {@link DistributedShardUpdateProcessor}.
+   * {@link AllShardUpdateProcessor} in place of the {@link AllShardUpdateProcessor}.
    *
    * @return A {@link UpdateRequestProcessor} instance
    */
@@ -92,8 +83,9 @@ public class KafkaImporter implements Runnable {
     List<UpdateRequestProcessorFactory> factories = new ArrayList<>(chain.getProcessors());
     for (int i = 0; i < factories.size(); i++) {
       UpdateRequestProcessorFactory factory = factories.get(i);
+      // TODO: document that we're not handling legacy master-slave mode
       if (factory instanceof DistributedUpdateProcessorFactory) {
-        factory = new DistributedShardUpdateProcessor.DistributedShardUpdateProcessorFactory(true);
+        factory = new AllShardUpdateProcessor.AllShardUpdateProcessorFactory();
         factories.set(i, factory);
         break;
       }
@@ -105,20 +97,19 @@ public class KafkaImporter implements Runnable {
 
   public void startThread() {
     log.info("Starting thread");
-    status = Status.RUNNING;
+    running = true;
     thread.start();
   }
 
   public void stop() {
     log.info("Stopping importer");
-    status = Status.DONE;
+    running = false;
 
     // Let the importer try to stop on its own
     try {
       Thread.sleep(pollTimeout.toMillis() * 5);
     } catch (InterruptedException e) {
       log.error("Thread interrupted while stopping", e);
-      status = Status.ERROR;
     }
 
     // Interrupt the thread if it couldn't shut down on its own
@@ -126,42 +117,14 @@ public class KafkaImporter implements Runnable {
       log.warn("Thread took too long to shut down; interrupting thread");
       thread.interrupt();
     }
-
-    // Close the Kafka consumer if it hasn't been closed yet
-    if (!isClosed) {
-      log.warn("Consumer not closed in regular thread shutdown");
-      consumer.close();
-      isClosed = true;
-    }
   }
 
-  public void pause() {
-    if (status.isOperational()) {
-      status = Status.PAUSED;
-    }
-  }
-
-  public void resume() {
-    if (status.isOperational()){
-      status = Status.RUNNING;
-    }
-  }
-
-  public void rewind() {
-    rewind = true;
-  }
-
-  public Status getStatus() {
-    return status;
-  }
-
-  public void setNewCore(SolrCore core) {
-    this.core = core;
-    this.updateHandler = createUpdateHandler(core, ignoreShardRouting);
+  public boolean isRunning() {
+    return running;
   }
 
   public boolean isThreadAlive() {
-    return thread != null && thread.isAlive() || !isClosed;
+    return thread != null && thread.isAlive();
   }
 
   @Override
@@ -172,82 +135,57 @@ public class KafkaImporter implements Runnable {
     long docCount = 0;
     long docCommitInterval = 0;
     Instant prevCommit = Instant.now();
-    while (status.isOperational()) {
-      if (rewind) {
-        log.info("Initiating rewind");
-        consumer.poll(0);
-        consumer.seekToBeginning(consumer.assignment());
-        rewind = false;
-      }
+    try (Consumer<String, SolrDocument> consumer = createConsumer()){
+      while (running) {
+        // Consume records from Kafka
+        ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
+        if (consumerRecords.count() > 0) {
+          log.info("Processing consumer records. {}", consumerRecords.count());
 
-      final Status localStatus = status;
+          // Process each record provided
+          for (ConsumerRecord<String, SolrDocument> record : consumerRecords) {
+            log.debug("Record received: {}", record);
 
-      // Handle pausing and resuming consumption from Kafka
-      if (localStatus == Status.PAUSED && consumer.paused().size() != consumer.assignment().size()) {
-        log.info("Pausing unpaused Kafka consumer assignments");
-        consumer.pause(consumer.assignment());
-      } else if (localStatus == Status.RUNNING && !consumer.paused().isEmpty()) {
-        log.info("Resuming paused Kafka consumer assignments");
-        consumer.resume(consumer.assignment());
-      }
+            // Construct Solr create request
+            SolrQueryRequest request = new LocalSolrQueryRequest(core, SOLR_REQUEST_ARGS);
+            request.setJSON(record.value());
+            AddUpdateCommand add = new AddUpdateCommand(request);
+            add.solrDoc = convertToInputDoc(record.value());
 
-      // Consume records from Kafka
-      ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
-      if (consumerRecords.count() > 0) {
-        log.info("Processing consumer records. {}", consumerRecords.count());
-
-        // Process each record provided
-        for (ConsumerRecord<String, SolrDocument> record : consumerRecords) {
-          log.debug("Record received: {}", record);
-
-          // Construct Solr create request
-          SolrQueryRequest request = new LocalSolrQueryRequest(core, SOLR_REQUEST_ARGS);
-          request.setJSON(record.value());
-          AddUpdateCommand add = new AddUpdateCommand(request);
-          add.solrDoc = convertToInputDoc(record.value());
-
-          // Attempt to add the update
-          try {
-            updateHandler.processAdd(add);
-            docCount++;
-            docCommitInterval++;
-          } catch (IOException e) {
-            log.error("Couldn't add solr doc...", e);
-            status = Status.ERROR;
+            // Attempt to add the update
+            try {
+              updateHandler.processAdd(add);
+              docCount++;
+              docCommitInterval++;
+            } catch (IOException e) {
+              log.error("Couldn't add solr doc...", e);
+            }
           }
+
+        } else {
+          log.info("No records received");
         }
 
-      } else {
-        log.info("No records received");
-
-        // Exit if no documents are received, we're planning to readFullyAndExit, and we're not paused
-        if (readFullyAndExit && localStatus != Status.PAUSED) {
-          status = Status.DONE;
+        // If commitInterval has elapsed, commit back to Kafka
+        if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
+          double interval = System.currentTimeMillis() - startTime;
+          log.info("\nAverage doc processing time: {}\nTotal elapsed time: {}\nTotal docs processed: {}\nDocs processed in commit interval: {}",
+              interval / docCount, interval, docCount, docCommitInterval);
+          commit(consumer);
+          prevCommit = Instant.now();
+          docCommitInterval = 0;
         }
       }
-
-      // If commitInterval has elapsed, commit back to Kafka
-      if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
-        double interval = System.currentTimeMillis() - startTime;
-        log.info("\nAverage doc processing time: {}\nTotal elapsed time: {}\nTotal docs processed: {}\nDocs processed in commit interval: {}",
-            interval / docCount, interval, docCount, docCommitInterval);
-        commit();
-        prevCommit = Instant.now();
-        docCommitInterval = 0;
-      }
+      commit(consumer);
     }
 
-    log.info("Cleaning up thread");
-    commit();
-    consumer.close();
-    isClosed = true;
     log.info("KafkaImporter finished");
   }
 
   /**
    * Commits most recent offsets to Kafka asynchronously and updates consumer lag.
    */
-  public void commit() {
+  private void commit(Consumer<String, SolrDocument> consumer) {
     log.info("Committing back to Kafka after {} delay and updating consumer group lag info", commitInterval);
     try {
       consumer.commitAsync();

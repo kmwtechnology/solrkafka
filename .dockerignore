@@ -1,0 +1,8 @@
+.idea/
+src/conf/
+target/
+.gitignore
+bucket-pipelines.yml
+README.md
+setup-solr.sh
+*.iml

@@ -3,7 +3,6 @@ package com.kmwllc.solr.solrkafka.importer;
 import com.kmwllc.solr.solrkafka.handler.request.CustomCommandDistributor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.solr.client.solrj.request.UpdateRequest;
 import org.apache.solr.cloud.CloudDescriptor;
 import org.apache.solr.cloud.ZkController;
 import org.apache.solr.cloud.ZkShardTerms;
@@ -36,22 +35,24 @@ import static org.apache.solr.update.processor.DistributingUpdateProcessorFactor
  * Most implementations contained in this class are copied from the {@link DistributedZkUpdateProcessor}. Minor
  * alterations have been made to distribute to all nodes.
  */
-public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcessor {
-  private static final Logger log = LogManager.getLogger(DistributedShardUpdateProcessor.class);
-  private final boolean ignoreShardRouting;
+public class AllShardUpdateProcessor extends DistributedZkUpdateProcessor {
+  private static final Logger log = LogManager.getLogger(AllShardUpdateProcessor.class);
   private final CloudDescriptor cloudDesc;
   private final ZkController zkController;
   private final String collection;
   private Set<String> skippedCoreNodeNames;
   private final CustomCommandDistributor cmdDistributor;
+  private final Slice mySlice;
+  private final String leaderReplicaName;
+  private final String shardId;
+  private final DocCollection coll;
 
   /**
    * @param req A {@link SolrQueryRequest}
    * @param rsp A {@link SolrQueryResponse}
    * @param next The next {@link UpdateRequestProcessor}, or {@code null} if none
-   * @param ignoreShardRouting {@code true} if the document should be distributed to all cores (should always be {@link true})
    */
-  public DistributedShardUpdateProcessor(SolrQueryRequest req, SolrQueryResponse rsp, UpdateRequestProcessor next, boolean ignoreShardRouting) {
+  public AllShardUpdateProcessor(SolrQueryRequest req, SolrQueryResponse rsp, UpdateRequestProcessor next) {
     super(req, rsp, next);
     CoreContainer cc = req.getCore().getCoreContainer();
     cloudDesc = req.getCore().getCoreDescriptor().getCloudDescriptor();
@@ -59,30 +60,29 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
     collection = cloudDesc.getCollectionName();
 
     cmdDistributor = new CustomCommandDistributor();
-    this.ignoreShardRouting = ignoreShardRouting;
+
+    try {
+      clusterState = zkController.getClusterState();
+      coll = clusterState.getCollection(collection);
+      shardId = cloudDesc.getShardId();
+      mySlice = coll.getSlice(shardId);
+      // TODO: might need to move this back into prepareRequest()
+      Replica leaderReplica = zkController.getZkStateReader().getLeaderRetry(collection, mySlice.getName());
+      isLeader = leaderReplica.getName().equals(cloudDesc.getCoreNodeName());
+      leaderReplicaName = leaderReplica.getName();
+    } catch (InterruptedException e) {
+      throw new IllegalStateException("Interrupted while getting shard info", e);
+    }
   }
 
   /**
-   * A Factory to create the {@link DistributedShardUpdateProcessor}.
+   * A Factory to create the {@link AllShardUpdateProcessor}.
    */
-  public static class DistributedShardUpdateProcessorFactory extends UpdateRequestProcessorFactory {
-    private final boolean ignoreRouting;
-
-    /**
-     * @param ignoreRouting {@code true} if the document should be distributed to all cores (should always be {@link true})
-     */
-    public DistributedShardUpdateProcessorFactory(boolean ignoreRouting) {
-      this.ignoreRouting = ignoreRouting;
-    }
-
+  public static class AllShardUpdateProcessorFactory extends UpdateRequestProcessorFactory {
     @Override
     public UpdateRequestProcessor getInstance(SolrQueryRequest req, SolrQueryResponse rsp, UpdateRequestProcessor next) {
-      return new DistributedShardUpdateProcessor(req, rsp, next, ignoreRouting);
+      return new AllShardUpdateProcessor(req, rsp, next);
     }
-  }
-
-  public boolean isIgnoreShardRouting() {
-    return ignoreShardRouting;
   }
 
   /**
@@ -90,20 +90,13 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
    */
   @Override
   protected List<SolrCmdDistributor.Node> setupRequest(String id, SolrInputDocument doc, String route) {
-    if (!ignoreShardRouting) {
-      return super.setupRequest(id, doc);
-    }
-
     if ((updateCommand.getFlags() & (UpdateCommand.REPLAY | UpdateCommand.PEER_SYNC)) != 0) {
       isLeader = false;     // we actually might be the leader, but we don't want leader-logic for these types of updates anyway.
       forwardToLeader = false;
       return null;
     }
 
-    clusterState = zkController.getClusterState();
-    DocCollection coll = clusterState.getCollection(collection);
     Collection<Slice> slices = coll.getSlices();
-    String shardId = cloudDesc.getShardId();
 
     // Attempt to get collection shards if none were found initially
     if (slices.isEmpty()) {
@@ -117,7 +110,6 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
         DistribPhase.parseParam(req.getParams().get(DISTRIB_UPDATE_PARAM));
 
     // Get the state of the current core's shard
-    Slice mySlice = coll.getSlice(shardId);
     Slice.State state = mySlice.getState();
 
     if (DistribPhase.FROMLEADER == phase && !(state == Slice.State.CONSTRUCTION || state == Slice.State.RECOVERY)) {
@@ -134,26 +126,6 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
       }
     }
 
-    try {
-      // Get the name of the current core's leader replica
-      Map<String, Replica> leaders = new HashMap<>();
-      String leaderReplicaName = "";
-      for (Slice slice : slices) {
-        Replica leaderReplica = zkController.getZkStateReader().getLeaderRetry(collection, slice.getName());
-        isLeader = leaderReplica.getName().equals(cloudDesc.getCoreNodeName());
-        if (!isLeader) {
-          isSubShardLeader = amISubShardLeader(coll, slice, id, doc);
-          if (isSubShardLeader) {
-            shardId = cloudDesc.getShardId();
-            leaderReplica = zkController.getZkStateReader().getLeaderRetry(collection, shardId);
-          }
-        }
-        if (slice.equals(mySlice)) {
-          leaderReplicaName = leaderReplica.getName();
-        }
-        leaders.put(leaderReplica.getName(), leaderReplica);
-      }
-
       doDefensiveChecks();
 
       // if request is coming from another collection then we want it to be sent to all replicas
@@ -167,13 +139,12 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
         return null;
       } else {
         forwardToLeader = false;
-        final String finalLeaderName = leaderReplicaName;
 
         // Get a Map of Shard IDs to the shard's replicas (minus this core's replica)
         Map<String, List<Replica>> replicas = clusterState.getCollection(collection)
             .getSlices().stream().collect(Collectors.toMap(Slice::getName,
                 slice -> slice.getReplicas(EnumSet.of(Replica.Type.NRT, Replica.Type.TLOG)).stream()
-                    .filter(replica -> !replica.getName().equals(finalLeaderName)).collect(Collectors.toList())));
+                    .filter(replica -> !replica.getName().equals(leaderReplicaName)).collect(Collectors.toList())));
 
         // If there are no replicas returned, exit
         if (replicas.isEmpty() || replicas.values().stream().allMatch(ls -> ls == null || ls.isEmpty())) {
@@ -215,10 +186,6 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
         }
         return nodes;
       }
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR, "", e);
-    }
   }
 
   /**
@@ -252,11 +219,6 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
 
   @Override
   protected void doDistribFinish() {
-    if (!ignoreShardRouting) {
-      super.doDistribFinish();
-      return;
-    }
-
     // Copied from DistributedZkUpdateProcessor
 
     clusterState = zkController.getClusterState();
@@ -275,11 +237,6 @@ public class DistributedShardUpdateProcessor extends DistributedZkUpdateProcesso
 
   @Override
   protected void doDistribAdd(AddUpdateCommand cmd) throws IOException {
-    if (!ignoreShardRouting) {
-      super.doDistribAdd(cmd);
-      return;
-    }
-
     // very different from DistributedZkUpdateProcessor because we don't care about limiting shards/subshards
 
     if (nodes != null) {

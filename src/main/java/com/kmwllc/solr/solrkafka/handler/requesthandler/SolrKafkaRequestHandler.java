@@ -20,6 +20,7 @@ import org.apache.solr.util.plugin.PluginInfoInitialized;
 import org.apache.solr.util.plugin.SolrCoreAware;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * A handler to start (or confirm the start of) the SolrKafka plugin. Creates a new {@link KafkaImporter},
@@ -70,6 +71,15 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
 
     boolean isLeader;
 
+    rsp.add("status",
+        importer == null ? "NOT_INITIALIZED" : importer.isRunning());
+    if (importer != null && importer.isThreadAlive()) {
+      Map<String, Long> consumerGroupLag = importer.getConsumerGroupLag();
+      rsp.add("consumer_group_lag", consumerGroupLag);
+    } else {
+      rsp.add("consumer_group_lag", "NOT_RUNNING");
+    }
+
     // Determines if this is the current leader and adds that information to the response
     try {
       isLeader = isCoreLeader(core);
@@ -104,10 +114,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       shouldRun = true;
       // Starts the importer if this is the leader
       if (isLeader) {
-        boolean fromBeginning = req.getParams().getBool("fromBeginning", false);
-        boolean readFullyAndExit = req.getParams().getBool("exitAtEnd", false);
-
-        if (!startImporter(fromBeginning, readFullyAndExit)) {
+        if (!startImporter()) {
           rsp.add("message", "Request already running");
           rsp.add("running", true);
           return;
@@ -125,7 +132,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     }
 
     // Exits if the importer is not running and we're the leader. All commands below require a running importer if leader.
-    if (isLeader && (importer == null || !importer.isThreadAlive())) {
+    if (isLeader && (importer == null || !importer.isRunning())) {
       rsp.add("status", "SolrKafka not running");
       rsp.add("running", false);
       return;
@@ -141,19 +148,8 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       rsp.add("running", false);
     } else if (!isLeader) {
       rsp.add("status", "Core is not leader");
-    } else if (action.equalsIgnoreCase("pause")) {
-      importer.pause();
-      rsp.add("status", "Paused SolrKafka");
-      rsp.add("running", false);
-    } else if (action.equalsIgnoreCase("resume")) {
-      importer.resume();
-      rsp.add("status", "Resumed SolrKafka");
-      rsp.add("running", true);
-    } else if (action.equalsIgnoreCase("rewind")) {
-      importer.rewind();
-      rsp.add("status", "Rewound SolrKafka");
-      rsp.add("running", true);
-    } else {
+      rsp.add("running", shouldRun);
+    } else if (!action.equalsIgnoreCase("status")) {
       rsp.add("status", "Unknown command provided");
       rsp.add("running", true);
     }
@@ -162,12 +158,9 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   /**
    * Sets up and starts a new importer.
    *
-   * @param fromBeginning If the {@link org.apache.kafka.clients.consumer.Consumer} should rewind to the beginning
-   * @param readFullyAndExit If the {@link KafkaImporter} should exit after receiving no more documents from the
-   * {@link org.apache.kafka.clients.consumer.Consumer} (if the {@link KafkaImporter} is paused, does not exit)
    * @return {@code true} if an importer was created and started, {@link false} if one was already running
    */
-  private boolean startImporter(boolean fromBeginning, boolean readFullyAndExit) {
+  private boolean startImporter() {
     // Exit if there's already an importer running
     if (importer != null && importer.isThreadAlive()) {
       log.info("Importer already running, skipping start process");
@@ -175,18 +168,17 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     }
 
     // Stops any previously running importer and closes resources
-    if (importer != null) {
+    if (importer != null && importer.isRunning()) {
       log.info("Stopping previously running importer");
       importer.stop();
     }
 
     // Create the importer
-    importer = new KafkaImporter(core, topicName, readFullyAndExit, fromBeginning, commitInterval,
+    importer = new KafkaImporter(core, topicName, commitInterval,
         ignoreShardRouting, incomingDataType);
 
 
     // Sets up the status handler and starts the importer
-    SolrKafkaStatusRequestHandler.setHandler(importer);
     importer.startThread();
     return true;
   }
@@ -256,18 +248,13 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     // Pause the currently running importer
     if (importer != null) {
       log.info("Setting new core in importer");
-      importer.pause();
-      importer.setNewCore(core);
+      importer.stop();
     }
 
     // If the core is a leader and we've been set up to run, start running
     try {
       if (isCoreLeader(core) && shouldRun) {
-        if (importer == null || !importer.getStatus().isOperational()) {
-          startImporter(false, false);
-        } else {
-          importer.resume();
-        }
+        startImporter();
       }
     } catch (InterruptedException e) {
       log.error("Interrupted while determining leader status", e);
@@ -280,7 +267,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       public void preClose(SolrCore core) {
         log.info("SolrCore shutting down");
         if (importer != null) {
-          importer.pause();
+          importer.stop();
         }
       }
 
