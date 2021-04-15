@@ -71,11 +71,6 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
         <str name="topicName">testtopic</str>
     </lst>
 </requestHandler>
-<!-- Creates the status request handler. Must be called on the same core that the /kafka handler was started on or no
-useful information will be returned. -->
-<requestHandler name="/kafka/status"
-                class="com.kmwllc.solr.solrkafka.handler.requesthandler.SolrKafkaStatusRequestHandler"
-                startup="lazy" />
 <!-- Creates the distrib handler. This is only required if "ignoreShardRouting" is true. Handles inserting the 
 documents on all cores except for the core that the /kafka importer is running on. Note: the name cannot be 
 changed in this case. -->

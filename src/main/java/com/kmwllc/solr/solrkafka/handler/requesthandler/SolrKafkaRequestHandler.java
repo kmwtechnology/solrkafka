@@ -38,7 +38,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   private String topicName = null;
 
   public SolrKafkaRequestHandler() {
-    log.info("Kafka Consumer created.");
+    log.info("Kafka Request Handler created.");
   }
 
   /**
@@ -69,8 +69,6 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       return;
     }
 
-    boolean isLeader;
-
     rsp.add("status",
         importer == null ? "NOT_INITIALIZED" : importer.isRunning());
     if (importer != null && importer.isThreadAlive()) {
@@ -81,13 +79,10 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     }
 
     // Determines if this is the current leader and adds that information to the response
+    boolean isLeader;
     try {
       isLeader = isCoreLeader(core);
-      if (isLeader) {
-        rsp.add("leader", true);
-      } else {
-        rsp.add("leader", false);
-      }
+      rsp.add("leader", isLeader);
     } catch (InterruptedException e) {
       log.error("Interrupted while determining core leader status", e);
       rsp.add("message", "Could not determine core leader status, exiting");
@@ -245,7 +240,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
 
     this.core = core;
 
-    // Pause the currently running importer
+    // Stop the currently running importer
     if (importer != null) {
       log.info("Setting new core in importer");
       importer.stop();
@@ -261,7 +256,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       importer.stop();
     }
 
-    // Add hook to pause the importer when the core is shutting down
+    // Add hook to stop the importer when the core is shutting down
     core.addCloseHook(new CloseHook() {
       @Override
       public void preClose(SolrCore core) {
