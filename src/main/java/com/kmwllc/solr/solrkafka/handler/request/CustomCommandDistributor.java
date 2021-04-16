@@ -50,7 +50,7 @@ public class CustomCommandDistributor implements AutoCloseable {
         HttpPost post = new HttpPost(uri);
         post.setEntity(new ByteArrayEntity(os.toByteArray()));
         post.setHeader(MIME.CONTENT_TYPE, "application/octet-stream");
-        client.execute(post);
+        client.execute(post).close();
       } catch (URISyntaxException e) {
         log.error("Invalid URI created for solr command distribution", e);
       }

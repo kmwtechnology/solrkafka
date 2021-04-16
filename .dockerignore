@@ -1,5 +1,4 @@
 .idea/
-src/conf/
 target/
 .gitignore
 bucket-pipelines.yml

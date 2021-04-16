@@ -40,8 +40,8 @@ public class KafkaImporter implements Runnable {
   private volatile boolean running = false;
   private final TemporalAmount commitInterval;
   private final Map<String, Long> consumerGroupLag = new HashMap<>();
-  private final boolean ignoreShardRouting;
   private final String topicName;
+  private final String kafkaBroker;
   private final String dataType;
 
   static {
@@ -55,11 +55,11 @@ public class KafkaImporter implements Runnable {
    * @param commitInterval The minimum number of MS between each Kafka offset commit
    * @param ignoreShardRouting {@code true} if all documents should be added to every shard
    */
-  public KafkaImporter(SolrCore core, String topicName, long commitInterval,
+  public KafkaImporter(SolrCore core, String kafkaBroker, String topicName, long commitInterval,
                        boolean ignoreShardRouting, String dataType) {
     this.topicName = topicName;
     this.core = core;
-    this.ignoreShardRouting = ignoreShardRouting;
+    this.kafkaBroker = kafkaBroker;
     this.updateHandler = createUpdateHandler(core, ignoreShardRouting);
     this.commitInterval = Duration.ofMillis(commitInterval);
     this.dataType = dataType;
@@ -212,11 +212,13 @@ public class KafkaImporter implements Runnable {
    */
   private Consumer<String, SolrDocument> createConsumer() {
     Properties props = new Properties();
-    props.putIfAbsent(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+    props.putIfAbsent(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBroker);
     props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, core.getName());
     props.putIfAbsent(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
     props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SerdeFactory.getDeserializer(dataType).getName());
+    // TODO: configurable from solrconfig or path?
     props.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+//    props.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
     props.putIfAbsent(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 16000);
 
     ClassLoader loader = Thread.currentThread().getContextClassLoader();

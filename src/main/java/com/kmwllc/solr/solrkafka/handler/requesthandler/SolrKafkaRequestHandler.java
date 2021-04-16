@@ -36,6 +36,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
   private volatile boolean shouldRun = false;
   private boolean ignoreShardRouting = false;
   private String topicName = null;
+  private String kafkaBroker = null;
 
   public SolrKafkaRequestHandler() {
     log.info("Kafka Consumer created.");
@@ -72,12 +73,11 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     boolean isLeader;
 
     rsp.add("status",
-        importer == null ? "NOT_INITIALIZED" : importer.isRunning());
+        importer == null ? "NOT_INITIALIZED" :
+            importer.isRunning() ? "RUNNING" : "STOPPED");
     if (importer != null && importer.isThreadAlive()) {
       Map<String, Long> consumerGroupLag = importer.getConsumerGroupLag();
       rsp.add("consumer_group_lag", consumerGroupLag);
-    } else {
-      rsp.add("consumer_group_lag", "NOT_RUNNING");
     }
 
     // Determines if this is the current leader and adds that information to the response
@@ -94,8 +94,8 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       return;
     }
 
-    if (topicName == null) {
-      rsp.add("message", "No topic provided in solrconfig.xml!");
+    if (topicName == null || kafkaBroker == null) {
+      rsp.add("message", "No topic or broker provided in solrconfig.xml!");
       rsp.setException(new IllegalStateException("No topic provided in solrconfig"));
       return;
     }
@@ -120,7 +120,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
           return;
         }
 
-        rsp.add("Status", "Started");
+        rsp.add("status", "started");
         rsp.add("running", true);
         return;
       } else {
@@ -132,7 +132,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     }
 
     // Exits if the importer is not running and we're the leader. All commands below require a running importer if leader.
-    if (isLeader && (importer == null || !importer.isRunning())) {
+    if (isLeader && !shouldRun && (importer == null || !importer.isRunning())) {
       rsp.add("status", "SolrKafka not running");
       rsp.add("running", false);
       return;
@@ -174,7 +174,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     }
 
     // Create the importer
-    importer = new KafkaImporter(core, topicName, commitInterval,
+    importer = new KafkaImporter(core, kafkaBroker, topicName, commitInterval,
         ignoreShardRouting, incomingDataType);
 
 
@@ -209,6 +209,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     Object commitInterval = info.initArgs.findRecursive("defaults", "commitInterval");
     Object ignoreShardRouting = info.initArgs.findRecursive("defaults", "ignoreShardRouting");
     Object topicName = info.initArgs.findRecursive("defaults", "topicName");
+    Object kafkaBroker = info.initArgs.findRecursive("defaults", "kafkaBroker");
 
     // If the values from the defaults section are present, override
     if (incomingDataType != null) {
@@ -222,6 +223,9 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     }
     if (topicName != null) {
       this.topicName = topicName.toString();
+    }
+    if (kafkaBroker != null) {
+      this.kafkaBroker = kafkaBroker.toString();
     }
   }
 

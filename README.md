@@ -67,15 +67,12 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
         <!-- True if the documents being imported should be added to all shards. False (default) if normal 
         importing rules should be applied. This must be false if Solr is not run in cloud mode. -->
         <str name="ignoreShardRouting">false</str>
+        <!-- The Kafka broker. Required. -->
+        <str name="kafkaBroker">localhost:9092</str>
         <!-- The topic to consume from. Required. -->
         <str name="topicName">testtopic</str>
     </lst>
 </requestHandler>
-<!-- Creates the status request handler. Must be called on the same core that the /kafka handler was started on or no
-useful information will be returned. -->
-<requestHandler name="/kafka/status"
-                class="com.kmwllc.solr.solrkafka.handler.requesthandler.SolrKafkaStatusRequestHandler"
-                startup="lazy" />
 <!-- Creates the distrib handler. This is only required if "ignoreShardRouting" is true. Handles inserting the 
 documents on all cores except for the core that the /kafka importer is running on. Note: the name cannot be 
 changed in this case. -->
@@ -114,15 +111,6 @@ Start Solr normally, applying the `-a` flag if debugging is required.
 
 The SolrKafka plugin can be started by performing a request to 
 `GET <solr_endpoint>/solr/<collection-and-optional-core>/kafka`.
-The following optional query parameters are accepted:
-
-- `fromBeginning`: `true` if the plugin should start from the beginning of the topic's history. Default is `false`.
-- `exitAtEnd`: `true` if the plugin should exit once catching up to the end of the topic's history. Default is `false`.
-
-If the importer is already running, then the importer will not do anything. If the request is made to a 
-non-leader replica, then the importer will not start, will optionally start later if it becomes leader. A `leader` JSON
-value is returned with the response, identifying the core that the request was made to as either a leader or a follower 
-through a boolean value.
 
 Note: The importer should only be running on one shard at a time. Running on multiple shards may cause documents
 to be indexed multiple times, and can result in unpredictable behavior. Therefore, it's recommended that 
@@ -135,25 +123,9 @@ one of the following values (if multiple values are provided, only the first is 
 - `start`: The default action if `action` is omitted. Starts the importer. This is the only command that can be
   run if the importer is not already running at the time this request is made.
 - `stop`: Shuts down the importer if it hasn't stopped on its own.
-- `pause`: Pauses the Kafka consumer. The importer still runs, but no documents are received.
-- `resumse`: Resumes the Kafka consumer if it was paused.
-- `rewind`: Performs the same action as the `fromBeginning` parameter, but while the importer is running.
+- `status`: Shows the status of the indexer
 
-### Other Handlers
-
-Two other handlers are provided with the Importer.
-
-#### Status Handler
-
-The status handler is available at `GET <solr_endpoint>/solr/<collection-and-optional-core>/kafka/status`.
-When called, it will return a JSON identifying the status of the given core, along with the consumer group lag.
-
-Note: This status handler must be called on the same core that the importer was started on, otherwise it will 
-return incorrect information. It's best to keep track of the core that the importer was started on, and the importer
-should be started using the explicit collection name with core identifier (e.g. 
-`<collection>_<shard_number>_replica_<replica_number>`).
-
-#### Distrib Handler
+### Distrib Handler
 
 This handler is only required if you're using the `ignoreShardRouting` configuration to send documents to all shards.
 If it is not being used, then feel free to omit this handler.

@@ -1,0 +1,26 @@
+version: "3.9"
+services:
+  solr:
+    image: kmw:solrkafka-test
+    build:
+      dockerfile: Dockerfile-test
+      context: .
+    command:
+      - solr-precreate
+      - singleNodeTest
+      - /opt/solr/server/solr/configsets/testconfig
+    ports:
+      - "8983:8983"
+
+  zookeeper:
+    image: wurstmeister/zookeeper:3.4.6
+
+  kafka:
+    image: wurstmeister/kafka:2.13-2.7.0
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: 127.0.0.1
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://:9092
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_CREATE_TOPICS: "testtopic:1:1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
