@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Properties;
 
 public class SingleNodeTest {
-  // TODO: attach a console appender to the root logger
   private static final Logger log = LogManager.getLogger(SingleNodeTest.class);
   private static final ObjectMapper mapper = new ObjectMapper();
   private final CloseableHttpClient client = HttpClients.createDefault();

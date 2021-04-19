@@ -5,20 +5,42 @@ services:
     build:
       dockerfile: Dockerfile-test
       context: .
-    command:
-      - solr-precreate
-      - singleNodeTest
-      - /opt/solr/server/solr/configsets/testconfig
+    environment:
+      ZK_HOST: zookeeper:2181
+    depends_on:
+      - zookeeper
+      - kafka
+    ports:
+      - "8983:8983"
+    networks:
+      - solrkafka
 
   zookeeper:
-    image: wurstmeister/zookeeper:3.4.6
+    image: zookeeper:3.5.8
+    tmpfs:
+      - /data
+      - /datalog
+    networks:
+      - solrkafka
+    ports:
+      - "2181:2181"
 
   kafka:
     image: wurstmeister/kafka:2.13-2.7.0
     environment:
       KAFKA_ADVERTISED_HOST_NAME: 127.0.0.1
+      KAFKA_BROKER_ID: 1
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://:9092
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_CREATE_TOPICS: "testtopic:10:1"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    tmpfs:
+      - /kafka
+    networks:
+      - solrkafka
+    depends_on:
+      - zookeeper
+
+networks:
+  solrkafka:
