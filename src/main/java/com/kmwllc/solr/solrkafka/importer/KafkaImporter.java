@@ -7,6 +7,7 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.common.SolrDocument;
+import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.params.MultiMapSolrParams;
 import org.apache.solr.common.params.SolrParams;
@@ -68,7 +69,7 @@ public class KafkaImporter implements Runnable {
 
   /**
    * Creates a {@link UpdateRequestProcessor} based off of the one provided by the {@link SolrCore}. If
-   * {@link this#ignoreShardRouting} is {@code true}, then edit the chain provided by the core and insert our own
+   * ignoreShardRouting is {@code true}, then edit the chain provided by the core and insert our own
    * {@link AllShardUpdateProcessor} in place of the {@link AllShardUpdateProcessor}.
    *
    * @return A {@link UpdateRequestProcessor} instance
@@ -157,7 +158,7 @@ public class KafkaImporter implements Runnable {
               updateHandler.processAdd(add);
               docCount++;
               docCommitInterval++;
-            } catch (IOException e) {
+            } catch (IOException | SolrException e) {
               log.error("Couldn't add solr doc...", e);
             }
           }
@@ -177,6 +178,8 @@ public class KafkaImporter implements Runnable {
         }
       }
       commit(consumer);
+    } catch (Throwable e) {
+      log.error("Error encountered while running importer", e);
     }
 
     log.info("KafkaImporter finished");
