@@ -88,10 +88,12 @@ public class SingleNodeTest {
   public String makeRequest(HttpUriRequest req) throws IOException {
     try (CloseableHttpResponse res = client.execute(req);
          BufferedInputStream entity = new BufferedInputStream(res.getEntity().getContent())) {
+      String val = new String(entity.readAllBytes());
+      log.info(val);
       if (res.getStatusLine().getStatusCode() < 200 || res.getStatusLine().getStatusCode() >= 300) {
         throw new IllegalStateException("Non-200 status code received");
       }
-      return new String(entity.readAllBytes());
+      return val;
     }
   }
 
