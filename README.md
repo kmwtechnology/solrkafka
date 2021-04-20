@@ -59,9 +59,6 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
     <lst name="defaults">
         <!-- The data type to read from Kafka. Available options are "solr" and "json". Default is "solr". -->
         <str name="incomingDataType">solr</str>
-        <!-- The request handler to use. Simple is the default to be used if this is omitted. 
-        Other types are not recommended. -->
-        <str name="consumerType">simple</str>
         <!-- How often the importer should wait before committing offsets back to Kafka. -->
         <str name="commitInterval">5000</str>
         <!-- True if the documents being imported should be added to all shards. False (default) if normal 

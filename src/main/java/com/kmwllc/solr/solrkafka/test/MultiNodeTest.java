@@ -170,9 +170,9 @@ public class MultiNodeTest {
         temp = Files.createTempDirectory("solrkafka-test");
         client.downConfig("_default", temp);
         client.upConfig(temp, "solrkafka");
-        byte[] data = Files.readAllBytes(configPath);
-        client.setData("/configs/solrkafka/solrconfig.xml", data, true);
       }
+      byte[] data = Files.readAllBytes(configPath);
+      client.setData("/configs/solrkafka/solrconfig.xml", data, true);
     } catch (InterruptedException e) {
       throw new IOException(e);
     } finally {
@@ -190,7 +190,7 @@ public class MultiNodeTest {
         .addParameter("maxShardsPerNode", "-1").addParameter("name", collectionName)
         .addParameter("collection.configName", "solrkafka");
     // Makes the request, but doesn't throw an exception if a 400 is returned (signifies the collection already exists)
-    makeRequest(new HttpGet(bldr.build()), 200, 400);
+    makeRequest(new HttpGet(bldr.build()));
   }
 
   /**
@@ -229,7 +229,6 @@ public class MultiNodeTest {
    * so that other methods can refer to the leader that the importer is started on.
    *
    * @param start {@code true} if the importer should be started, {@link false} if it should be stopped
-   * @throws IOException
    */
   public void manageImporter(boolean start) throws IOException {
     if (leader == null) {
