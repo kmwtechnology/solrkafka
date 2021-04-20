@@ -16,7 +16,6 @@ import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
-import org.apache.log4j.ConsoleAppender;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.common.SolrDocument;
@@ -34,8 +33,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.stream.Collectors;
 
+/**
+ * Runs tests in cloud mode. Sets up the nodes automatically.
+ */
 public class MultiNodeTest {
   private static final Logger log = LogManager.getLogger(MultiNodeTest.class);
   private static final ObjectMapper mapper = new ObjectMapper();
@@ -55,11 +56,6 @@ public class MultiNodeTest {
   private final String nrts;
   private final String shards;
   private final boolean skipSeedKafka;
-
-  static {
-    ConsoleAppender appender = new ConsoleAppender();
-    org.apache.log4j.Logger.getRootLogger().addAppender(appender);
-  }
 
   /**
    * @param collectionName The name of the collection to (try to) create and test

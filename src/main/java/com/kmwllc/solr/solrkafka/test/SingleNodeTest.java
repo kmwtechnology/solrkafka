@@ -14,7 +14,6 @@ import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
-import org.apache.log4j.ConsoleAppender;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.common.SolrDocument;
@@ -25,6 +24,9 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Properties;
 
+/**
+ * Runs tests outside of cloud mode. Expects the node to be set up prior to running the test.
+ */
 public class SingleNodeTest {
   private static final Logger log = LogManager.getLogger(SingleNodeTest.class);
   private static final ObjectMapper mapper = new ObjectMapper();
@@ -37,11 +39,10 @@ public class SingleNodeTest {
   private static final String kafkaPort = ":9092";
   private final List<SolrDocument> docs;
 
-  static {
-    ConsoleAppender appender = new ConsoleAppender();
-    org.apache.log4j.Logger.getRootLogger().addAppender(appender);
-  }
-
+  /**
+   * @param docsPath The path to a JSON file of solr documents to test with, or null if docs should be randomly created
+   * @param docker Whether or not this test is being run in docker (uses different URLs for services)
+   */
   public SingleNodeTest(Path docsPath, boolean docker) throws IOException {
     log.info("Loading test documents");
     if (docsPath != null) {
@@ -78,6 +79,12 @@ public class SingleNodeTest {
     }
   }
 
+  /**
+   * Make a request and throw an exception if any status codes other than the {@code expectedStatuses} are returned.
+   *
+   * @param req The request to make
+   * @return The body of the request
+   */
   public String makeRequest(HttpUriRequest req) throws IOException {
     try (CloseableHttpResponse res = client.execute(req);
          BufferedInputStream entity = new BufferedInputStream(res.getEntity().getContent())) {
@@ -88,6 +95,11 @@ public class SingleNodeTest {
     }
   }
 
+  /**
+   * Manages the importer by starting or stopping it.
+   *
+   * @param start {@code true} if the importer should be started, {@link false} if it should be stopped
+   */
   public void manageImporter(boolean start) throws IOException {
     log.info("{} SolrKafka importer", start ? "starting" : "stopping");
     HttpGet get = new HttpGet(solrHostPath + solrPath + pluginEndpoint + (start ? "" : "?action=stop"));
@@ -95,12 +107,20 @@ public class SingleNodeTest {
     log.info("Response received: {}", bodyString);
   }
 
+  /**
+   * Forces the index to commit changes immediately.
+   */
   public void forceCommit() throws IOException {
     log.info("Forcing commit");
     HttpGet get = new HttpGet(solrHostPath + solrPath + "/update?commit=true");
     makeRequest(get);
   }
 
+  /**
+   * Checks the number of documents found on the node to ensure it matches the expected count.
+   *
+   * @param numRecords The expected number of records
+   */
   private void checkDocCount(int numRecords) throws IOException {
     HttpGet get = new HttpGet(solrHostPath + solrPath + "/select?q=*:*&rows=0");
     String bodyString = makeRequest(get);
@@ -117,6 +137,10 @@ public class SingleNodeTest {
     log.info("Doc count is as expected");
   }
 
+  /**
+   * Run the test by confirming doc count is 0, seeding Kafka (if applicable), waiting for the importer to catch up,
+   * and checking the doc count.
+   */
   public void runTest() throws IOException {
     forceCommit();
     checkDocCount(0);
@@ -140,6 +164,10 @@ public class SingleNodeTest {
     checkDocCount(docs.size());
   }
 
+  /**
+   * Waits for the consumer group lag to be 0 for each Kafka partition or the importer to stop.
+   * If it's not reached in 45 seconds, an execption is thrown.
+   */
   public void waitForLag() throws IOException {
     HttpGet get = new HttpGet(solrHostPath + solrPath + pluginEndpoint + "?action=status");
     final int maxWait = 45;
@@ -183,5 +211,4 @@ public class SingleNodeTest {
       }
     }
   }
-
 }
