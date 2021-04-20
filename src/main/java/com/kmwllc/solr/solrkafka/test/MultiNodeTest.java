@@ -65,7 +65,8 @@ public class MultiNodeTest {
    * @param collectionName The name of the collection to (try to) create and test
    * @param docsPath The path to a JSON file of solr documents to test with, or null if docs should be randomly created
    * @param docker Whether or not this test is being run in docker (uses different URLs for services)
-   * @param configPath The path to the solrconfig.xml file to use in the collection within the Solr container
+   * @param configPath The path to the solrconfig.xml file to use in the collection within the Solr container,
+   *                   or null if a premade solrconfig.xml should be used
    * @param ignoreShardRouting Whether or not shard routing should be ignored in this test
    * @param nrts The number of NRT replicas to create
    * @param tlogs The numer of TLOG replicas to create
@@ -87,7 +88,13 @@ public class MultiNodeTest {
     this.collectionName = collectionName;
     this.kafkaHostPath = docker ? "kafka" : "localhost";
     this.tlogs = tlogs;
-    this.configPath = configPath;
+    if (configPath == null) {
+      this.configPath = ignoreShardRouting
+          ? Path.of("/opt/solr/server/solr/configsets/testconfig/conf/solrconfig-routing.xml")
+          : Path.of("/opt/solr/server/solr/configsets/testconfig/conf/solrconfig.xml");
+    } else {
+      this.configPath = configPath;
+    }
     this.pulls = pulls;
     this.ignoreShardRouting = ignoreShardRouting;
     this.skipSeedKafka = skipSeedKafka;
@@ -102,7 +109,8 @@ public class MultiNodeTest {
     String tlogs = "0";
     String nrts = "2";
     String shards = "2";
-    Path configPath = Path.of("/opt/solr/server/solr/configsets/testconfig/conf/solrconfig.xml");
+    Path configPath = null;
+    boolean ignoreShardRouting = false;
 
     for (int i = 0; i < args.length; i++) {
       if (args[i].equals("-d")) {
@@ -132,13 +140,15 @@ public class MultiNodeTest {
       } else if (args[i].equals("-k")) {
         // If provided, kafka will not be seeded with randomized docs or anything provided with -p
         skipSeedKafka = true;
+      } else if (args[i].equals("-i")) {
+        ignoreShardRouting = true;
       } else {
         log.fatal("Unknown param passed, usage: [-d] [-p DOCS_PATH] [-c CONFIG_PATH] [--cname COLLECTION_NAME] [-k]" +
-            "[--pulls NUM_PULL_REPLICAS] [--tlogs NUM_TLOG_REPLICAS] [--nrts|-r NUM_NRT_REPLICAS] [-s NUM_SHARDS]");
+            "[--pulls NUM_PULL_REPLICAS] [--tlogs NUM_TLOG_REPLICAS] [--nrts|-r NUM_NRT_REPLICAS] [-s NUM_SHARDS] [-i]");
       }
     }
 
-    MultiNodeTest test = new MultiNodeTest(collectionName, docsPath, docker, configPath, false,
+    MultiNodeTest test = new MultiNodeTest(collectionName, docsPath, docker, configPath, ignoreShardRouting,
         nrts, tlogs, pulls, shards, skipSeedKafka);
     test.uploadConfig();
     test.manageImporter(true);
@@ -271,9 +281,9 @@ public class MultiNodeTest {
    */
   private void checkDocCount(int numRecords) throws IOException {
     if (numRecords > 0) {
-      log.info("Sleeping for 10 seconds to let commit complete");
+      log.info("Sleeping for 5 seconds to let commit complete");
       try {
-        Thread.sleep(15000);
+        Thread.sleep(5000);
       } catch (InterruptedException e) {
         throw new IllegalStateException("Interrupted while waiting", e);
       }
@@ -298,29 +308,30 @@ public class MultiNodeTest {
     }
 
     // Try to check the number of documents each node contains up to 5 times
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 25; i++) {
       errors.clear();
       try {
-        log.info("Sleeping for 5 seconds in round {}", i + 1);
-        Thread.sleep(5000);
+        Thread.sleep(1000);
       } catch (InterruptedException e) {
         throw new IllegalStateException("Interrupted while waiting", e);
       }
 
-      // Select all docs to determine if the correct number of documents overall are found
-      get = new HttpGet(solrHostPath + leader + "/select?q=*:*&rows=0");
-      bodyString = makeRequest(get);
-      body = mapper.readTree(bodyString);
+      // Select all docs to determine if the correct number of documents overall are found if not ignoring shard routing
+      if (!ignoreShardRouting) {
+        get = new HttpGet(solrHostPath + leader + "/select?q=*:*&rows=0");
+        bodyString = makeRequest(get);
+        body = mapper.readTree(bodyString);
 
-      if (!body.has("response") || !body.get("response").has("numFound")) {
-        throw new IllegalStateException("Invalid response from Solr");
-      }
-      if (body.get("response").get("numFound").longValue() != numRecords) {
-        String msg = String.format("Incorrect number of documents found; expected %d but found %d",
-            numRecords, body.get("response").get("numFound").longValue());
-        errors.add(msg);
-      } else {
-        log.info("Total doc count is as expected");
+        if (!body.has("response") || !body.get("response").has("numFound")) {
+          throw new IllegalStateException("Invalid response from Solr");
+        }
+        if (body.get("response").get("numFound").longValue() != numRecords) {
+          String msg = String.format("Incorrect number of documents found; expected %d but found %d",
+              numRecords, body.get("response").get("numFound").longValue());
+          errors.add(msg);
+        } else {
+          log.info("Total doc count is as expected");
+        }
       }
 
       // Get the status of each core to determine if it contains the correct number of documents

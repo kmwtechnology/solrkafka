@@ -12,5 +12,6 @@ USER root
 
 RUN cp -r server/solr/configsets/_default server/solr/configsets/testconfig
 COPY src/test/resources/solrconfig.xml server/solr/configsets/testconfig/conf/
+COPY src/test/resources/solrconfig-routing.xml server/solr/configsets/testconfig/conf/
 
 USER $SOLR_USER
