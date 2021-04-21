@@ -163,7 +163,7 @@ public class SingleNodeTest {
       }
     }
     log.info("Done sending documents, waiting until consumer lag is 0");
-    waitForLag();
+    waitForLag(docs.size());
     final double duration = (System.currentTimeMillis() - start) / 1000.0;
     forceCommit();
     checkDocCount(docs.size());
@@ -176,18 +176,18 @@ public class SingleNodeTest {
    * Waits for the consumer group lag to be 0 for each Kafka partition or the importer to stop.
    * If it's not reached in 45 seconds, an execption is thrown.
    */
-  public void waitForLag() throws IOException {
+  public void waitForLag(int numDocs) throws IOException {
     HttpGet get = new HttpGet(solrHostPath + solrPath + pluginEndpoint + "?action=status");
-    final int maxWait = 45;
-    int waitCount = 0;
+    int round = 0;
+    int numStatic = 0;
     while (true) {
       try {
-        if (waitCount > maxWait) {
-          throw new IllegalStateException("Waited for " + maxWait +
-              " seconds, but documents could not all be consumed from Kafka");
+        if (numStatic > 3) {
+          throw new IllegalStateException("Waited " + numStatic +
+              " rounds, but documents could not all be consumed from Kafka");
         }
-        Thread.sleep(1000);
-        waitCount++;
+        log.info("Sleeping for 5 seconds on round {}", round++);
+        Thread.sleep(5000);
       } catch (InterruptedException e) {
         log.info("Interrupted while sleeping");
         return;
@@ -206,13 +206,17 @@ public class SingleNodeTest {
         if (lag.size() == 0) {
           continue;
         }
+        int offsetSums = 0;
         for (JsonNode partition : lag) {
           if (partition.asLong() > 0) {
+            offsetSums += partition.asLong();
             finished = false;
-            break;
           }
         }
         if (!finished) {
+          if (offsetSums == numDocs) {
+            numStatic++;
+          }
           continue;
         }
         return;
