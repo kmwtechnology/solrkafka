@@ -9,17 +9,27 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 import java.util.UUID;
 
-public class TestDocumentCreator {
+public class TestDocumentCreator implements Iterable<SolrDocument>, Iterator<SolrDocument> {
   private static final ObjectMapper mapper = new ObjectMapper();
   private static final Base64.Encoder encoder = Base64.getEncoder();
+  private static final Random random = new Random();
   private final int numDocs;
+  private int currDoc = 0;
+  private final List<SolrDocument> seededDocs;
 
   public TestDocumentCreator(int numDocs) {
     this.numDocs = numDocs;
+    seededDocs = null;
+  }
+
+  public TestDocumentCreator(List<SolrDocument> docs) {
+    this.seededDocs = docs;
+    this.numDocs = docs.size();
   }
 
   public static void main(String[] args) throws IOException {
@@ -29,24 +39,53 @@ public class TestDocumentCreator {
       outputFile = Path.of(args[0]);
       numDocs = Integer.parseInt(args[1]);
     }
-    TestDocumentCreator creator = new TestDocumentCreator(numDocs);
-    List<SolrDocument> docs = creator.createDocs();
+    List<SolrDocument> docs = createDocs(numDocs);
     Files.write(outputFile, mapper.writeValueAsBytes(docs));
   }
 
-  public List<SolrDocument> createDocs() {
+  public static SolrDocument createRandomDoc() {
+    SolrDocument doc = new SolrDocument();
+    doc.put("id", UUID.randomUUID().toString());
+    doc.put("text", encoder.encodeToString(random.ints(random.nextInt(10000)).parallel()
+        .collect(StringBuilder::new, StringBuilder::append, StringBuilder::append)
+        .toString().getBytes(StandardCharsets.UTF_8)));
+    doc.put("doc_number", random.nextInt());
+    doc.put("doc_double", random.nextDouble());
+    doc.put("some_flag", random.nextBoolean());
+    return doc;
+  }
+
+  public static List<SolrDocument> createDocs(int numDocs) {
     List<SolrDocument> docs = new ArrayList<>();
-    Random random = new Random();
     for (int i = 0; i < numDocs; i++) {
-      SolrDocument doc = new SolrDocument();
-      doc.put("id", UUID.randomUUID().toString());
-      doc.put("text", encoder.encodeToString(random.ints(random.nextInt(10000)).parallel()
-          .collect(StringBuilder::new, StringBuilder::append, StringBuilder::append)
-          .toString().getBytes(StandardCharsets.UTF_8)));
-      doc.put("doc_number", i);
-      doc.put("some_flag", random.nextBoolean());
-      docs.add(doc);
+      docs.add(createRandomDoc());
     }
     return docs;
+  }
+
+  @Override
+  public Iterator<SolrDocument> iterator() {
+    return seededDocs == null ? this : seededDocs.iterator();
+  }
+
+  @Override
+  public boolean hasNext() {
+    return currDoc < numDocs;
+  }
+
+  @Override
+  public SolrDocument next() {
+    if (seededDocs != null) {
+      throw new IllegalStateException("Should be using ArrayList iterator rather than doc creator");
+    }
+    if (currDoc >= numDocs) {
+      throw new IllegalStateException("Iterator drained");
+    }
+    currDoc++;
+    return createRandomDoc();
+  }
+
+  public int size() {
+    return numDocs;
   }
 }

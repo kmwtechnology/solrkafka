@@ -7,6 +7,7 @@ services:
       context: .
     environment:
       ZK_HOST: zookeeper:2181
+      SOLR_JAVA_MEM: "-Xms1g -Xmx1g"
     depends_on:
       - zookeeper
       - kafka
@@ -14,6 +15,12 @@ services:
       - "8983:8983"
     networks:
       - solrkafka
+    deploy:
+      resources:
+        limits:
+          memory: 3GB
+        reservations:
+          memory: 3GB
 
   zookeeper:
     image: zookeeper:3.5.8

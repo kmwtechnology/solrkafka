@@ -139,6 +139,8 @@ public class KafkaImporter implements Runnable {
     try (Consumer<String, SolrDocument> consumer = createConsumer()){
       while (running) {
         // Consume records from Kafka
+        // TODO: if solr is down, should be able to restart and have search come back online
+        // make sure this doesn't throw an exception when down, or else it will kill solr when not able to connect
         ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
         if (consumerRecords.count() > 0) {
           log.info("Processing consumer records. {}", consumerRecords.count());

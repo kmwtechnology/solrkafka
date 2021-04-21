@@ -47,7 +47,7 @@ public class MultiNodeTest {
   private final String collectionName;
   private static final String pluginEndpoint = "/kafka";
   private static final String kafkaPort = ":9092";
-  private final List<SolrDocument> docs;
+  private final TestDocumentCreator docs;
   private final Path configPath;
   private String leader;
   private final boolean ignoreShardRouting;
@@ -56,6 +56,7 @@ public class MultiNodeTest {
   private final String nrts;
   private final String shards;
   private final boolean skipSeedKafka;
+  private static final int NUM_DOCS = 100_000;
 
   /**
    * @param collectionName The name of the collection to (try to) create and test
@@ -74,9 +75,9 @@ public class MultiNodeTest {
                        String nrts, String tlogs, String pulls, String shards, boolean skipSeedKafka) throws IOException {
     log.info("Loading test documents");
     if (docsPath != null) {
-      docs = mapper.readValue(docsPath.toFile(), new TypeReference<List<SolrDocument>>() {});
+      docs = new TestDocumentCreator(mapper.readValue(docsPath.toFile(), new TypeReference<List<SolrDocument>>() {}));
     } else {
-      docs = new TestDocumentCreator(256).createDocs();
+      docs = new TestDocumentCreator(NUM_DOCS);
     }
 
     this.shards = shards;
@@ -410,6 +411,7 @@ public class MultiNodeTest {
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, SolrDocumentSerializer.class.getName());
 
+    final long start = System.currentTimeMillis();
     if (!skipSeedKafka) {
       log.info("Sending {} documents to topic {}", docs.size(), topic);
       try (Producer<String, SolrDocument> producer = new KafkaProducer<>(props)) {
@@ -424,8 +426,11 @@ public class MultiNodeTest {
     }
 
     waitForLag();
+    final double duration = (System.currentTimeMillis() - start) / 1000.0;
     forceCommit();
     checkDocCount(docs.size());
+    log.info("Duration for {} docs was {} seconds, {} docs / second", docs.size(), duration,
+        docs.size() / duration);
     log.info("Test passed");
   }
 

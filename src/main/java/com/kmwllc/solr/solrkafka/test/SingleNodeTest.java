@@ -37,7 +37,8 @@ public class SingleNodeTest {
   private static final String solrPath = ":8983/solr/singleNodeTest";
   private static final String pluginEndpoint = "/kafka";
   private static final String kafkaPort = ":9092";
-  private final List<SolrDocument> docs;
+  private final TestDocumentCreator docs;
+  private static final int NUM_DOCS = 100_000;
 
   /**
    * @param docsPath The path to a JSON file of solr documents to test with, or null if docs should be randomly created
@@ -46,9 +47,9 @@ public class SingleNodeTest {
   public SingleNodeTest(Path docsPath, boolean docker) throws IOException {
     log.info("Loading test documents");
     if (docsPath != null) {
-      docs = mapper.readValue(docsPath.toFile(), new TypeReference<List<SolrDocument>>() {});
+      docs = new TestDocumentCreator(mapper.readValue(docsPath.toFile(), new TypeReference<List<SolrDocument>>() {}));
     } else {
-      docs = new TestDocumentCreator(256).createDocs();
+      docs = new TestDocumentCreator(NUM_DOCS);
     }
 
     this.kafkaHostPath = docker ? "kafka" : "localhost";
@@ -154,6 +155,7 @@ public class SingleNodeTest {
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, SolrDocumentSerializer.class.getName());
 
     log.info("Sending {} documents to topic {}", docs.size(), topic);
+    final long start = System.currentTimeMillis();
     try (Producer<String, SolrDocument> producer = new KafkaProducer<>(props)) {
       for (SolrDocument doc : docs) {
         ProducerRecord<String, SolrDocument> record = new ProducerRecord<>(topic, doc.get("id").toString(), doc);
@@ -162,8 +164,12 @@ public class SingleNodeTest {
     }
     log.info("Done sending documents, waiting until consumer lag is 0");
     waitForLag();
+    final double duration = (System.currentTimeMillis() - start) / 1000.0;
     forceCommit();
     checkDocCount(docs.size());
+
+    log.info("Duration for {} docs was {} seconds, {} docs / second", docs.size(), duration,
+        docs.size() / duration);
   }
 
   /**
