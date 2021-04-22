@@ -26,6 +26,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.TemporalAmount;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 /**
  * Imports documents from a Kafka {@link Consumer} in a separate thread and adds them to Solr using the same
@@ -33,14 +35,14 @@ import java.util.*;
  */
 public class KafkaImporter implements Runnable {
   private static final Logger log = LogManager.getLogger(KafkaImporter.class);
+  public static final String KAFKA_IMPORTER_GROUP = "KafkaImporterGroup";
   private volatile SolrCore core;
-  private volatile UpdateRequestProcessor updateHandler;
+  private final UpdateRequestProcessor updateHandler;
   private final Duration pollTimeout = Duration.ofMillis(1000);
   private static final NamedList<String> SOLR_REQUEST_ARGS = new NamedList<>();
   private final Thread thread;
   private volatile boolean running = false;
   private final TemporalAmount commitInterval;
-  private final Map<String, Long> consumerGroupLag = new HashMap<>();
   private final String topicName;
   private final String kafkaBroker;
   private final String dataType;
@@ -142,7 +144,7 @@ public class KafkaImporter implements Runnable {
         // TODO: if solr is down, should be able to restart and have search come back online
         // make sure this doesn't throw an exception when down, or else it will kill solr when not able to connect
         ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
-        if (consumerRecords.count() > 0) {
+        if (!consumerRecords.isEmpty()) {
           log.info("Processing consumer records. {}", consumerRecords.count());
 
           // Process each record provided
@@ -172,8 +174,10 @@ public class KafkaImporter implements Runnable {
         // If commitInterval has elapsed, commit back to Kafka
         if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
           double interval = System.currentTimeMillis() - startTime;
-          log.info("\nAverage doc processing time: {}\nTotal elapsed time: {}\nTotal docs processed: {}\nDocs processed in commit interval: {}",
-              interval / docCount, interval, docCount, docCommitInterval);
+          log.info("\nAverage doc processing time: {}\nTotal elapsed time: {}\nTotal docs processed: {}\nDocs processed in commit interval: {}" +
+                  "\nLast Interval Length: {} seconds",
+              interval / docCount, interval, docCount, docCommitInterval,
+              (Instant.now().toEpochMilli() - prevCommit.toEpochMilli()) / 1000.0);
           commit(consumer);
           prevCommit = Instant.now();
           docCommitInterval = 0;
@@ -196,18 +200,19 @@ public class KafkaImporter implements Runnable {
       consumer.commitAsync();
     } catch (CommitFailedException e) {
       log.error("Commit failed", e);
-      consumerGroupLag.clear();
-    }
-
-    Map<TopicPartition, Long> ends = consumer.endOffsets(consumer.assignment());
-    Map<TopicPartition, OffsetAndMetadata> offsets = consumer.committed(consumer.assignment());
-    for (Map.Entry<TopicPartition, Long> entry : ends.entrySet()) {
-      consumerGroupLag.put(entry.getKey().toString(), entry.getValue() - offsets.get(entry.getKey()).offset());
     }
   }
 
   public Map<String, Long> getConsumerGroupLag() {
-    return consumerGroupLag;
+    // TODO: does this rebalance?
+    try (Consumer<String, SolrDocument> consumer = createConsumer()) {
+      Set<TopicPartition> partitions = consumer.partitionsFor(topicName).stream()
+          .map(part -> new TopicPartition(part.topic(), part.partition())).collect(Collectors.toSet());
+      Map<TopicPartition, Long> ends = consumer.endOffsets(partitions);
+      Map<TopicPartition, OffsetAndMetadata> offsets = consumer.committed(partitions);
+      return ends.entrySet().stream().collect(Collectors.toMap(val -> val.getKey().topic() + val.getKey().partition(),
+          val -> val.getValue() - offsets.get(val.getKey()).offset()));
+    }
   }
 
   /**
@@ -218,13 +223,13 @@ public class KafkaImporter implements Runnable {
   private Consumer<String, SolrDocument> createConsumer() {
     Properties props = new Properties();
     props.putIfAbsent(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBroker);
-    props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, core.getName());
+    props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, KAFKA_IMPORTER_GROUP);
     props.putIfAbsent(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
     props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SerdeFactory.getDeserializer(dataType).getName());
     // TODO: configurable from solrconfig or path?
     props.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-//    props.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
-    props.putIfAbsent(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 16000);
+    // TODO: make this configurable
+    props.putIfAbsent(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 45000);
 
     ClassLoader loader = Thread.currentThread().getContextClassLoader();
     Thread.currentThread().setContextClassLoader(null);

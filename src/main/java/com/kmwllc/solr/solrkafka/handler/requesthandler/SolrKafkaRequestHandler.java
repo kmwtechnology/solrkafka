@@ -76,12 +76,14 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     if (importer != null && importer.isThreadAlive()) {
       Map<String, Long> consumerGroupLag = importer.getConsumerGroupLag();
       rsp.add("consumer_group_lag", consumerGroupLag);
+      rsp.add("total_offset", consumerGroupLag.values().stream().mapToLong(l -> l).sum());
+    } else {
+      rsp.add("consumer_group_lag", "NOT_RUNNING");
     }
 
     // Determines if this is the current leader and adds that information to the response
-    boolean isLeader;
     try {
-      isLeader = isCoreLeader(core);
+      boolean isLeader = isCoreLeader(core);
       rsp.add("leader", isLeader);
     } catch (InterruptedException e) {
       log.error("Interrupted while determining core leader status", e);
@@ -108,7 +110,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     if (action.equalsIgnoreCase("start")) {
       shouldRun = true;
       // Starts the importer if this is the leader
-      if (isLeader) {
+//      if (isLeader) {
         if (!startImporter()) {
           rsp.add("message", "Request already running");
           rsp.add("running", true);
@@ -118,16 +120,16 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
         rsp.add("status", "started");
         rsp.add("running", true);
         return;
-      } else {
-        log.info("Not leader, ready to run");
-        rsp.add("message", "Not leader, but ready to run");
-        rsp.add("running", false);
-      }
-      return;
+//      } else {
+//        log.info("Not leader, ready to run");
+//        rsp.add("message", "Not leader, but ready to run");
+//        rsp.add("running", false);
+//      }
     }
 
     // Exits if the importer is not running and we're the leader. All commands below require a running importer if leader.
-    if (isLeader && !shouldRun && (importer == null || !importer.isRunning())) {
+//    if (isLeader && (importer == null || !importer.isRunning())) {
+    if (!shouldRun && (importer == null || !importer.isRunning())) {
       rsp.add("status", "SolrKafka not running");
       rsp.add("running", false);
       return;
@@ -136,14 +138,9 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     // Handle the provided action
     if (action.equalsIgnoreCase("stop")) {
       shouldRun = false;
-      if (isLeader) {
-        importer.stop();
-      }
+      importer.stop();
       rsp.add("status", "Stopping SolrKafka");
       rsp.add("running", false);
-    } else if (!isLeader) {
-      rsp.add("status", "Core is not leader");
-      rsp.add("running", shouldRun);
     } else if (!action.equalsIgnoreCase("status")) {
       rsp.add("status", "Unknown command provided");
       rsp.add("running", true);
@@ -251,14 +248,15 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     }
 
     // If the core is a leader and we've been set up to run, start running
-    try {
-      if (isCoreLeader(core) && shouldRun) {
-        startImporter();
-      }
-    } catch (InterruptedException e) {
-      log.error("Interrupted while determining leader status", e);
-      importer.stop();
+//    try {
+//      if (isCoreLeader(core) && shouldRun) {
+    if (shouldRun) {
+      startImporter();
     }
+//    } catch (InterruptedException e) {
+//      log.error("Interrupted while determining leader status", e);
+//      importer.stop();
+//    }
 
     // Add hook to stop the importer when the core is shutting down
     core.addCloseHook(new CloseHook() {
