@@ -1,5 +1,6 @@
 package org.apache.solr.update;
 
+import com.kmwllc.solr.solrkafka.test.TestDocumentCreator;
 import org.apache.kafka.clients.producer.*;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.solr.common.SolrDocument;
@@ -27,7 +28,7 @@ public class SolrDocumentKafkaPublisher {
 	private final static String BOOTSTRAP_SERVERS = "localhost:9092";
 	private final static String CLIENT_ID = "KafkaExampleProducer";
 	public int sendMessageCount = 1000000;
-
+	private final TestDocumentCreator docs = new TestDocumentCreator(sendMessageCount);
 
 	public static void main(String[] args) throws Exception {
 		SolrDocumentKafkaPublisher pub = new SolrDocumentKafkaPublisher();
@@ -71,15 +72,13 @@ public class SolrDocumentKafkaPublisher {
 		long time = System.currentTimeMillis();
 		try {
 			long i = 0;
-			for (long index = time; index < time + sendMessageCount; index++) {
-				String docId = "doc_" + UUID.randomUUID().toString();
-				SolrDocument doc = createSampleDocument(docId);
-				ProducerRecord<String, SolrDocument> record = new ProducerRecord<String, SolrDocument>(TOPIC, docId, doc);
+			for (SolrDocument doc : docs) {
+				ProducerRecord<String, SolrDocument> record =
+						new ProducerRecord<String, SolrDocument>(TOPIC, doc.get("id").toString(), doc);
 				// It's probably faster if we just send and don't bother with the get.  maybe just do it on the last one?
 				// producer.send(record);
-				RecordMetadata metadata = producer.send(record).get();
+				producer.send(record).get();
 				long elapsedTime = System.currentTimeMillis() - time;
-				//log.info("sent record(key={} value={}) meta(partition={}, offset={}) time={}", record.key(), record.value(), metadata.partition(), metadata.offset(), elapsedTime);
 				i++;
 				if (i % 10000 == 0) {
 					System.out.println("Sent " + i + " Rate " + 1000.0 * i / elapsedTime);
