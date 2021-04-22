@@ -38,7 +38,7 @@ public class SingleNodeTest {
   private static final String pluginEndpoint = "/kafka";
   private static final String kafkaPort = ":9092";
   private final TestDocumentCreator docs;
-  private static final int NUM_DOCS = 100_000;
+  private static final int NUM_DOCS = 15_000;
 
   /**
    * @param docsPath The path to a JSON file of solr documents to test with, or null if docs should be randomly created

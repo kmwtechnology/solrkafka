@@ -27,7 +27,7 @@ public class SolrDocumentKafkaPublisher {
 	private final static String TOPIC = "testtopic";
 	private final static String BOOTSTRAP_SERVERS = "localhost:9092";
 	private final static String CLIENT_ID = "KafkaExampleProducer";
-	public int sendMessageCount = 1000000;
+	public int sendMessageCount = 15_000;
 	private final TestDocumentCreator docs = new TestDocumentCreator(sendMessageCount);
 
 	public static void main(String[] args) throws Exception {

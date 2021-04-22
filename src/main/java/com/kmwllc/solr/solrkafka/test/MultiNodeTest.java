@@ -56,7 +56,7 @@ public class MultiNodeTest {
   private final String nrts;
   private final String shards;
   private final boolean skipSeedKafka;
-  private static final int NUM_DOCS = 100_000;
+  private static final int NUM_DOCS = 15_000;
 
   /**
    * @param collectionName The name of the collection to (try to) create and test
