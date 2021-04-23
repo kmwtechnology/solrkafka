@@ -299,14 +299,21 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
                   CreateMode.CONTAINER, true);
               log.info("ZK plugin node created");
             }
+
           } catch (KeeperException.NodeExistsException e) {
             log.info("ZK plugin node not originally found but has been created externally, skipping creation");
           } catch (KeeperException.BadVersionException e) {
             log.info("ZK plugin status updated concurrently, skipping update");
           }
 
-          client.create(ZK_PLUGIN_PATH + "/" + core.getName(), core.getName().getBytes(StandardCharsets.UTF_8),
-              CreateMode.EPHEMERAL, true);
+          if (!client.exists(ZK_PLUGIN_PATH + "/" + core.getName(), true)) {
+            log.info("Plugin ephemeral node for core {} does not exist, creating it now", core.getName());
+            client.create(ZK_PLUGIN_PATH + "/" + core.getName(), core.getName().getBytes(StandardCharsets.UTF_8),
+                CreateMode.EPHEMERAL, true);
+          } else {
+            log.info("Plugin ephemeral node already exists for core {}, skipping creation", core.getName());
+          }
+
           shouldRun = new String(keeper.getData(ZK_PLUGIN_PATH, false, stat), StandardCharsets.UTF_8)
               .trim().equals("RUNNING");
           core.getCoreContainer().getZkController().getZkClient().getSolrZooKeeper()
