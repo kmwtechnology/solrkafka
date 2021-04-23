@@ -174,7 +174,7 @@ public class KafkaImporter implements Runnable {
         // If commitInterval has elapsed, commit back to Kafka
         if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
           double interval = System.currentTimeMillis() - startTime;
-          log.info("\nAverage doc processing time: {}\nTotal elapsed time: {}\nTotal docs processed: {}\nDocs processed in commit interval: {}" +
+          log.info("\nAverage doc processing time: {} ms\nTotal elapsed time: {}\nTotal docs processed: {}\nDocs processed in commit interval: {}" +
                   "\nLast Interval Length: {} seconds",
               interval / docCount, interval, docCount, docCommitInterval,
               (Instant.now().toEpochMilli() - prevCommit.toEpochMilli()) / 1000.0);
@@ -211,7 +211,8 @@ public class KafkaImporter implements Runnable {
       Map<TopicPartition, Long> ends = consumer.endOffsets(partitions);
       Map<TopicPartition, OffsetAndMetadata> offsets = consumer.committed(partitions);
       return ends.entrySet().stream().collect(Collectors.toMap(val -> val.getKey().topic() + val.getKey().partition(),
-          val -> val.getValue() - offsets.get(val.getKey()).offset()));
+          val -> (val.getValue() == null ? 0 : val.getValue())
+              - offsets.getOrDefault(val.getKey(), new OffsetAndMetadata(0)).offset()));
     }
   }
 
@@ -226,6 +227,7 @@ public class KafkaImporter implements Runnable {
     props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, KAFKA_IMPORTER_GROUP);
     props.putIfAbsent(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
     props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SerdeFactory.getDeserializer(dataType).getName());
+    props.putIfAbsent(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
     // TODO: configurable from solrconfig or path?
     props.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
     // TODO: make this configurable

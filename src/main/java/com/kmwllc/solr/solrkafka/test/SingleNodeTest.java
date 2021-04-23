@@ -49,7 +49,7 @@ public class SingleNodeTest {
     if (docsPath != null) {
       docs = new TestDocumentCreator(mapper.readValue(docsPath.toFile(), new TypeReference<List<SolrDocument>>() {}));
     } else {
-      docs = new TestDocumentCreator(NUM_DOCS);
+      docs = new TestDocumentCreator(NUM_DOCS, 10_000);
     }
 
     this.kafkaHostPath = docker ? "kafka" : "localhost";

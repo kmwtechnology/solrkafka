@@ -19,16 +19,19 @@ public class TestDocumentCreator implements Iterable<SolrDocument>, Iterator<Sol
   private static final Base64.Encoder encoder = Base64.getEncoder();
   private static final Random random = new Random();
   private final int numDocs;
+  private final int docSize;
   private int currDoc = 0;
   private final List<SolrDocument> seededDocs;
 
-  public TestDocumentCreator(int numDocs) {
+  public TestDocumentCreator(int numDocs, int docSize) {
     this.numDocs = numDocs;
+    this.docSize = docSize;
     seededDocs = null;
   }
 
   public TestDocumentCreator(List<SolrDocument> docs) {
     this.seededDocs = docs;
+    this.docSize = -1;
     this.numDocs = docs.size();
   }
 
