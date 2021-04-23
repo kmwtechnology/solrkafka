@@ -46,6 +46,7 @@ public class KafkaImporter implements Runnable {
   private final String topicName;
   private final String kafkaBroker;
   private final String dataType;
+  private final boolean ignoreShardRouting;
 
   static {
     SOLR_REQUEST_ARGS.add("commitWithin", "1000");
@@ -61,9 +62,10 @@ public class KafkaImporter implements Runnable {
   public KafkaImporter(SolrCore core, String kafkaBroker, String topicName, long commitInterval,
                        boolean ignoreShardRouting, String dataType) {
     this.topicName = topicName;
+    this.ignoreShardRouting = ignoreShardRouting;
     this.core = core;
     this.kafkaBroker = kafkaBroker;
-    this.updateHandler = createUpdateHandler(core, ignoreShardRouting);
+    this.updateHandler = createUpdateHandler(core);
     this.commitInterval = Duration.ofMillis(commitInterval);
     this.dataType = dataType;
     thread = new Thread(this, "KafkaImporter Async Runnable");
@@ -76,7 +78,7 @@ public class KafkaImporter implements Runnable {
    *
    * @return A {@link UpdateRequestProcessor} instance
    */
-  private static UpdateRequestProcessor createUpdateHandler(SolrCore core, boolean ignoreShardRouting) {
+  private UpdateRequestProcessor createUpdateHandler(SolrCore core) {
     SolrParams params = new MultiMapSolrParams(Map.of());
     UpdateRequestProcessorChain chain = core.getUpdateProcessorChain(params);
     if (!ignoreShardRouting) {
@@ -84,18 +86,19 @@ public class KafkaImporter implements Runnable {
     }
 
     List<UpdateRequestProcessorFactory> factories = new ArrayList<>(chain.getProcessors());
-    for (int i = 0; i < factories.size(); i++) {
-      UpdateRequestProcessorFactory factory = factories.get(i);
-      // TODO: document that we're not handling legacy master-slave mode
-      if (factory instanceof DistributedUpdateProcessorFactory) {
-        factory = new AllShardUpdateProcessor.AllShardUpdateProcessorFactory();
-        factories.set(i, factory);
-        break;
-      }
-    }
+//    for (int i = 0; i < factories.size(); i++) {
+//      UpdateRequestProcessorFactory factory = factories.get(i);
+//      // TODO: document that we're not handling legacy master-slave mode
+//      if (factory instanceof DistributedUpdateProcessorFactory) {
+//        factory = new AllShardUpdateProcessor.AllShardUpdateProcessorFactory();
+//        factories.set(i, factory);
+//        break;
+//      }
+//    }
 
-    return new UpdateRequestProcessorChain(factories, core)
-        .createProcessor(new LocalSolrQueryRequest(core, params), null);
+    return new UpdateRequestProcessorChain(
+        factories.stream().filter(fac -> !(fac instanceof DistributedUpdateProcessorFactory)).collect(Collectors.toList()),
+        core).createProcessor(new LocalSolrQueryRequest(core, params), null);
   }
 
   public void startThread() {
@@ -224,7 +227,8 @@ public class KafkaImporter implements Runnable {
   private Consumer<String, SolrDocument> createConsumer() {
     Properties props = new Properties();
     props.putIfAbsent(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBroker);
-    props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, KAFKA_IMPORTER_GROUP);
+    final String group = KAFKA_IMPORTER_GROUP + (ignoreShardRouting ? ":" + core.getName() : "");
+    props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, group);
     props.putIfAbsent(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
     props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SerdeFactory.getDeserializer(dataType).getName());
     props.putIfAbsent(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
