@@ -109,8 +109,6 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
     // If the start action is supplied, setup and maybe start the importer
     if (action.equalsIgnoreCase("start")) {
       shouldRun = true;
-      // Starts the importer if this is the leader
-//      if (isLeader) {
         if (!startImporter()) {
           rsp.add("message", "Request already running");
           rsp.add("running", true);
@@ -120,15 +118,9 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
         rsp.add("status", "started");
         rsp.add("running", true);
         return;
-//      } else {
-//        log.info("Not leader, ready to run");
-//        rsp.add("message", "Not leader, but ready to run");
-//        rsp.add("running", false);
-//      }
     }
 
-    // Exits if the importer is not running and we're the leader. All commands below require a running importer if leader.
-//    if (isLeader && (importer == null || !importer.isRunning())) {
+    // Exits if the importer is not running. All commands below require a running importer if leader.
     if (!shouldRun && (importer == null || !importer.isRunning())) {
       rsp.add("status", "SolrKafka not running");
       rsp.add("running", false);
@@ -247,16 +239,10 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase implements SolrC
       importer.stop();
     }
 
-    // If the core is a leader and we've been set up to run, start running
-//    try {
-//      if (isCoreLeader(core) && shouldRun) {
+    // If we've been set up to run, start running
     if (shouldRun) {
       startImporter();
     }
-//    } catch (InterruptedException e) {
-//      log.error("Interrupted while determining leader status", e);
-//      importer.stop();
-//    }
 
     // Add hook to stop the importer when the core is shutting down
     core.addCloseHook(new CloseHook() {
