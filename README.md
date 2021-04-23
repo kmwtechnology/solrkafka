@@ -54,8 +54,7 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
 
 ```xml
 <!-- Creates the main request handler. This is available at the /solr/<collection-and-optional-core>/kafka. -->
-<requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.handler.requesthandler.SolrKafkaRequestHandler"
-                startup="lazy">
+<requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.handler.requesthandler.SolrKafkaRequestHandler">
     <lst name="defaults">
         <!-- The data type to read from Kafka. Available options are "solr" and "json". Default is "solr". -->
         <str name="incomingDataType">solr</str>
