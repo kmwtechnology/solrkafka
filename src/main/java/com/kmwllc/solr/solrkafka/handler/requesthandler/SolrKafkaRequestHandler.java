@@ -28,6 +28,7 @@ import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -46,10 +47,11 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
   private long commitInterval = 5000;
   private volatile boolean shouldRun = false;
   private boolean ignoreShardRouting = false;
-  private String topicName = null;
+  private List<String> topicNames = null;
   private String kafkaBroker = null;
   private volatile ZooKeeper keeper;
   private volatile boolean hasBeenSetup = false;
+  private int kafkaPollInterval = 45000;
 
   public SolrKafkaRequestHandler() {
     log.info("Kafka Request Handler created.");
@@ -106,7 +108,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       return;
     }
 
-    if (topicName == null || kafkaBroker == null) {
+    if (topicNames == null || kafkaBroker == null) {
       rsp.add("message", "No topic or broker provided in solrconfig.xml!");
       rsp.setException(new IllegalStateException("No topic provided in solrconfig"));
       return;
@@ -199,8 +201,8 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     }
 
     // Create the importer
-    importer = new KafkaImporter(core, kafkaBroker, topicName, commitInterval,
-        ignoreShardRouting, incomingDataType);
+    importer = new KafkaImporter(core, kafkaBroker, topicNames, commitInterval,
+        ignoreShardRouting, incomingDataType, kafkaPollInterval);
 
 
     // Sets up the status handler and starts the importer
@@ -232,8 +234,9 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     Object incomingDataType = info.initArgs.findRecursive("defaults", "incomingDataType");
     Object commitInterval = info.initArgs.findRecursive("defaults", "commitInterval");
     Object ignoreShardRouting = info.initArgs.findRecursive("defaults", "ignoreShardRouting");
-    Object topicName = info.initArgs.findRecursive("defaults", "topicName");
+    Object topicNames = info.initArgs.findRecursive("defaults", "topicNames");
     Object kafkaBroker = info.initArgs.findRecursive("defaults", "kafkaBroker");
+    Object kafkaPollInterval = info.initArgs.findRecursive("defaults", "kafkaPollInterval");
 
     // If the values from the defaults section are present, override
     if (incomingDataType != null) {
@@ -245,11 +248,14 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     if (ignoreShardRouting != null) {
       this.ignoreShardRouting = Boolean.parseBoolean(ignoreShardRouting.toString());
     }
-    if (topicName != null) {
-      this.topicName = topicName.toString();
+    if (topicNames != null) {
+      this.topicNames = Arrays.asList(topicNames.toString().split(","));
     }
     if (kafkaBroker != null) {
       this.kafkaBroker = kafkaBroker.toString();
+    }
+    if (kafkaPollInterval != null) {
+      this.kafkaPollInterval = Integer.parseInt(kafkaPollInterval.toString());
     }
   }
 
@@ -284,40 +290,45 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       while (true)  {
         // TODO: will make a best attempt to not immediately begin running, but no promises
         try {
-          Stat stat = keeper.exists(ZK_PLUGIN_PATH, false);
+//          Stat stat = keeper.exists(ZK_PLUGIN_PATH, false);
+          // TODO: do we actually need to reset here?
+          //   might only need to worry about it for all shard routing?
           try {
-            if (stat != null) {
-              log.info("ZK plugin node found, will not attempt to re-create");
-              List<String> children = keeper.getChildren(ZK_PLUGIN_PATH, false);
-              log.info("ZK plugin node children: {}", children);
-              if (children.isEmpty()) {
-                log.info("ZK plugin node has no children, making sure plugin is not running on start");
-                keeper.setData(ZK_PLUGIN_PATH, "STOPPED".getBytes(StandardCharsets.UTF_8), stat.getVersion());
-              }
-            } else {
-              client.create(ZK_PLUGIN_PATH, "STOPPED".getBytes(StandardCharsets.UTF_8),
-                  CreateMode.CONTAINER, true);
-              log.info("ZK plugin node created");
-            }
+//            if (stat != null) {
+//              log.info("ZK plugin node found, will not attempt to re-create");
+//              List<String> children = keeper.getChildren(ZK_PLUGIN_PATH, false);
+//              log.info("ZK plugin node children: {}", children);
+//              if (children.isEmpty()) {
+//                log.info("ZK plugin node has no children, making sure plugin is not running on start");
+//                keeper.setData(ZK_PLUGIN_PATH, "STOPPED".getBytes(StandardCharsets.UTF_8), stat.getVersion());
+//              }
+//            } else {
+//            if (stat == null) {
+            client.create(ZK_PLUGIN_PATH, "STOPPED".getBytes(StandardCharsets.UTF_8),
+                CreateMode.PERSISTENT, true);
+            log.info("ZK plugin node created");
+//            }
 
           } catch (KeeperException.NodeExistsException e) {
             log.info("ZK plugin node not originally found but has been created externally, skipping creation");
-          } catch (KeeperException.BadVersionException e) {
-            log.info("ZK plugin status updated concurrently, skipping update");
           }
+//          } catch (KeeperException.BadVersionException e) {
+//            log.info("ZK plugin status updated concurrently, skipping update");
+//          }
 
-          if (!client.exists(ZK_PLUGIN_PATH + "/" + core.getName(), true)) {
-            log.info("Plugin ephemeral node for core {} does not exist, creating it now", core.getName());
-            client.create(ZK_PLUGIN_PATH + "/" + core.getName(), core.getName().getBytes(StandardCharsets.UTF_8),
-                CreateMode.EPHEMERAL, true);
-          } else {
-            log.info("Plugin ephemeral node already exists for core {}, skipping creation", core.getName());
-          }
+//          if (!client.exists(ZK_PLUGIN_PATH + "/" + core.getName(), true)) {
+//            log.info("Plugin ephemeral node for core {} does not exist, creating it now", core.getName());
+//            client.create(ZK_PLUGIN_PATH + "/" + core.getName(), core.getName().getBytes(StandardCharsets.UTF_8),
+//                CreateMode.EPHEMERAL, true);
+//          } else {
+//            log.info("Plugin ephemeral node already exists for core {}, skipping creation", core.getName());
+//          }
 
-          shouldRun = new String(keeper.getData(ZK_PLUGIN_PATH, false, stat), StandardCharsets.UTF_8)
-              .trim().equals("RUNNING");
           core.getCoreContainer().getZkController().getZkClient().getSolrZooKeeper()
               .addWatch(ZK_PLUGIN_PATH, this, AddWatchMode.PERSISTENT_RECURSIVE);
+          Stat stat = keeper.exists(ZK_PLUGIN_PATH, false);
+          shouldRun = new String(keeper.getData(ZK_PLUGIN_PATH, false, stat), StandardCharsets.UTF_8)
+              .trim().equals("RUNNING");
           log.info("Created {}/{} node and watcher, shouldRun = {}", ZK_PLUGIN_PATH, core.getName(), shouldRun);
           break;
         } catch (InterruptedException e) {
@@ -326,7 +337,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
         } catch (KeeperException e) {
           log.error("Error occurred while setting up Zookeeper state", e);
         }
-        if (i++ > 10) {
+        if (++i > 10) {
           log.error("Could not initialize ZK client");
           return;
         }

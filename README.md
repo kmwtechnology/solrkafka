@@ -65,16 +65,12 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
         <str name="ignoreShardRouting">false</str>
         <!-- The Kafka broker. Required. -->
         <str name="kafkaBroker">localhost:9092</str>
-        <!-- The topic to consume from. Required. -->
+        <!-- The topic to consume from in the form of a comma separated list with no spaces. Required. -->
         <str name="topicName">testtopic</str>
+        <!-- The max poll interval for Kafka. -->
+        <str name="kafkaPollInterval">45000</str>
     </lst>
 </requestHandler>
-<!-- Creates the distrib handler. This is only required if "ignoreShardRouting" is true. Handles inserting the 
-documents on all cores except for the core that the /kafka importer is running on. Note: the name cannot be 
-changed in this case. -->
-<requestHandler name="/kafka/distrib"
-                class="com.kmwllc.solr.solrkafka.handler.requesthandler.DistributedCommandHandler"
-                startup="lazy" />
 ```
 
 ### Create Your Collection Schema

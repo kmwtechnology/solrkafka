@@ -10,7 +10,6 @@ import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.cloud.Replica;
-import org.apache.solr.common.cloud.Slice;
 import org.apache.solr.common.params.MultiMapSolrParams;
 import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.common.util.NamedList;
@@ -28,7 +27,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.TemporalAmount;
 import java.util.*;
-import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 /**
@@ -38,17 +36,18 @@ import java.util.stream.Collectors;
 public class KafkaImporter implements Runnable {
   private static final Logger log = LogManager.getLogger(KafkaImporter.class);
   public static final String KAFKA_IMPORTER_GROUP = "KafkaImporterGroup";
-  private volatile SolrCore core;
+  private final SolrCore core;
   private final UpdateRequestProcessor updateHandler;
   private final Duration pollTimeout = Duration.ofMillis(1000);
   private static final NamedList<String> SOLR_REQUEST_ARGS = new NamedList<>();
   private final Thread thread;
   private volatile boolean running = false;
   private final TemporalAmount commitInterval;
-  private final String topicName;
+  private final List<String> topicNames;
   private final String kafkaBroker;
   private final String dataType;
   private final boolean ignoreShardRouting;
+  private final int kafkaPollInterval;
 
   static {
     SOLR_REQUEST_ARGS.add("commitWithin", "1000");
@@ -61,14 +60,15 @@ public class KafkaImporter implements Runnable {
    * @param commitInterval The minimum number of MS between each Kafka offset commit
    * @param ignoreShardRouting {@code true} if all documents should be added to every shard
    */
-  public KafkaImporter(SolrCore core, String kafkaBroker, String topicName, long commitInterval,
-                       boolean ignoreShardRouting, String dataType) {
-    this.topicName = topicName;
+  public KafkaImporter(SolrCore core, String kafkaBroker, List<String> topicNames, long commitInterval,
+                       boolean ignoreShardRouting, String dataType, int kafkaPollInterval) {
+    this.topicNames = topicNames;
     this.ignoreShardRouting = ignoreShardRouting;
     this.core = core;
     this.kafkaBroker = kafkaBroker;
     this.updateHandler = createUpdateHandler(core);
     this.commitInterval = Duration.ofMillis(commitInterval);
+    this.kafkaPollInterval = kafkaPollInterval;
     this.dataType = dataType;
     thread = new Thread(this, "KafkaImporter Async Runnable");
   }
@@ -76,7 +76,6 @@ public class KafkaImporter implements Runnable {
   /**
    * Creates a {@link UpdateRequestProcessor} based off of the one provided by the {@link SolrCore}. If
    * ignoreShardRouting is {@code true}, then edit the chain provided by the core and insert our own
-   * {@link AllShardUpdateProcessor} in place of the {@link AllShardUpdateProcessor}.
    *
    * @return A {@link UpdateRequestProcessor} instance
    */
@@ -88,16 +87,6 @@ public class KafkaImporter implements Runnable {
     }
 
     List<UpdateRequestProcessorFactory> factories = new ArrayList<>(chain.getProcessors());
-//    for (int i = 0; i < factories.size(); i++) {
-//      UpdateRequestProcessorFactory factory = factories.get(i);
-//      // TODO: document that we're not handling legacy master-slave mode
-//      if (factory instanceof DistributedUpdateProcessorFactory) {
-//        factory = new AllShardUpdateProcessor.AllShardUpdateProcessorFactory();
-//        factories.set(i, factory);
-//        break;
-//      }
-//    }
-
     return new UpdateRequestProcessorChain(
         factories.stream().filter(fac -> !(fac instanceof DistributedUpdateProcessorFactory)).collect(Collectors.toList()),
         core).createProcessor(new LocalSolrQueryRequest(core, params), null);
@@ -146,8 +135,6 @@ public class KafkaImporter implements Runnable {
     try (Consumer<String, SolrDocument> consumer = createConsumer()){
       while (running) {
         // Consume records from Kafka
-        // TODO: if solr is down, should be able to restart and have search come back online
-        // make sure this doesn't throw an exception when down, or else it will kill solr when not able to connect
         ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
         if (!consumerRecords.isEmpty()) {
           log.info("Processing consumer records. {}", consumerRecords.count());
@@ -210,6 +197,7 @@ public class KafkaImporter implements Runnable {
 
   public Map<String, Long> getConsumerGroupLag() {
     // TODO: does this cause a rebalance?
+    // TODO: can this be done with the Admin class/without creating a new consumer
     if (ignoreShardRouting) {
       Map<String, Long> allOffsets = new HashMap<>();
       for (String core : getCloudCoreNames()) {
@@ -223,8 +211,11 @@ public class KafkaImporter implements Runnable {
 
   private Map<String, Long> getCoreLag(String coreName) {
     try (Consumer<String, SolrDocument> consumer = createConsumer(coreName)) {
-      Set<TopicPartition> partitions = consumer.partitionsFor(topicName).stream()
-          .map(part -> new TopicPartition(part.topic(), part.partition())).collect(Collectors.toSet());
+      Set<TopicPartition> partitions = new HashSet<>();
+      for (String topicName : topicNames) {
+        partitions.addAll(consumer.partitionsFor(topicName).stream()
+          .map(part -> new TopicPartition(part.topic(), part.partition())).collect(Collectors.toSet()));
+      }
       Map<TopicPartition, Long> ends = consumer.endOffsets(partitions);
       Map<TopicPartition, OffsetAndMetadata> offsets = consumer.committed(partitions);
       return ends.entrySet().stream().collect(Collectors.toMap(val ->
@@ -232,7 +223,6 @@ public class KafkaImporter implements Runnable {
           val -> {
             long end = val.getValue() == null ? 0 : val.getValue();
             OffsetAndMetadata offset = offsets.get(val.getKey());
-            // TODO: do we want to start out with -1 or the max possible difference if offset isn't known
             return offset == null ? end : end - offset.offset();
           }));
     }
@@ -268,15 +258,14 @@ public class KafkaImporter implements Runnable {
     props.putIfAbsent(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
     // TODO: configurable from solrconfig or path?
     props.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-    // TODO: make this configurable
-    props.putIfAbsent(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 45000);
+    props.putIfAbsent(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, kafkaPollInterval);
 
     ClassLoader loader = Thread.currentThread().getContextClassLoader();
     Thread.currentThread().setContextClassLoader(null);
     KafkaConsumer<String, SolrDocument> consumer = new KafkaConsumer<>(props);
     Thread.currentThread().setContextClassLoader(loader);
 
-    consumer.subscribe(Collections.singletonList(topicName));
+    consumer.subscribe(topicNames);
     return consumer;
   }
 
