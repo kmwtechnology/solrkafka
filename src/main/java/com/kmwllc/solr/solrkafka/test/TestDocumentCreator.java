@@ -47,9 +47,13 @@ public class TestDocumentCreator implements Iterable<SolrDocument>, Iterator<Sol
   }
 
   public static SolrDocument createRandomDoc() {
+    return createRandomDoc(10000);
+  }
+
+  public static SolrDocument createRandomDoc(int docSize) {
     SolrDocument doc = new SolrDocument();
     doc.put("id", UUID.randomUUID().toString());
-    doc.put("text", encoder.encodeToString(random.ints(random.nextInt(10000)).parallel()
+    doc.put("text", encoder.encodeToString(random.ints(random.nextInt(docSize)).parallel()
         .collect(StringBuilder::new, StringBuilder::append, StringBuilder::append)
         .toString().getBytes(StandardCharsets.UTF_8)));
     doc.put("doc_number", random.nextInt());
@@ -85,7 +89,7 @@ public class TestDocumentCreator implements Iterable<SolrDocument>, Iterator<Sol
       throw new IllegalStateException("Iterator drained");
     }
     currDoc++;
-    return createRandomDoc();
+    return createRandomDoc(docSize);
   }
 
   public int size() {

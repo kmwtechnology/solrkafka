@@ -9,6 +9,8 @@ import org.apache.logging.log4j.Logger;
 import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
+import org.apache.solr.common.cloud.Replica;
+import org.apache.solr.common.cloud.Slice;
 import org.apache.solr.common.params.MultiMapSolrParams;
 import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.common.util.NamedList;
@@ -207,27 +209,59 @@ public class KafkaImporter implements Runnable {
   }
 
   public Map<String, Long> getConsumerGroupLag() {
-    // TODO: does this rebalance?
-    try (Consumer<String, SolrDocument> consumer = createConsumer()) {
+    // TODO: does this cause a rebalance?
+    if (ignoreShardRouting) {
+      Map<String, Long> allOffsets = new HashMap<>();
+      for (String core : getCloudCoreNames()) {
+        allOffsets.putAll(getCoreLag(core));
+      }
+      return allOffsets;
+    } else {
+      return getCoreLag("");
+    }
+  }
+
+  private Map<String, Long> getCoreLag(String coreName) {
+    try (Consumer<String, SolrDocument> consumer = createConsumer(coreName)) {
       Set<TopicPartition> partitions = consumer.partitionsFor(topicName).stream()
           .map(part -> new TopicPartition(part.topic(), part.partition())).collect(Collectors.toSet());
       Map<TopicPartition, Long> ends = consumer.endOffsets(partitions);
       Map<TopicPartition, OffsetAndMetadata> offsets = consumer.committed(partitions);
-      return ends.entrySet().stream().collect(Collectors.toMap(val -> val.getKey().topic() + val.getKey().partition(),
-          val -> (val.getValue() == null ? 0 : val.getValue())
-              - offsets.getOrDefault(val.getKey(), new OffsetAndMetadata(0)).offset()));
+      return ends.entrySet().stream().collect(Collectors.toMap(val ->
+              String.format("%s-%s:%s", val.getKey().topic(), val.getKey().partition(), coreName),
+          val -> {
+            long end = val.getValue() == null ? 0 : val.getValue();
+            OffsetAndMetadata offset = offsets.get(val.getKey());
+            // TODO: do we want to start out with -1 or the max possible difference if offset isn't known
+            return offset == null ? end : end - offset.offset();
+          }));
     }
   }
+
+  private List<String> getCloudCoreNames() {
+    if (!ignoreShardRouting) {
+      throw new IllegalStateException("Should not access other core names in non-all shard routing mode");
+    }
+    String collectionName = core.getCoreDescriptor().getCloudDescriptor().getCollectionName();
+    List<Replica> replicas = core.getCoreContainer().getZkController().getClusterState()
+        .getCollection(collectionName).getReplicas();
+    return replicas.stream().map(Replica::getCoreName).collect(Collectors.toList());
+  }
+
+  private Consumer<String, SolrDocument> createConsumer() {
+    return createConsumer(core.getName());
+  }
+
 
   /**
    * Creates a new Kafka {@link Consumer}, setting required values if not already provided.
    *
    * @return An initialized {@link Consumer}
    */
-  private Consumer<String, SolrDocument> createConsumer() {
+  private Consumer<String, SolrDocument> createConsumer(String subGroupId) {
     Properties props = new Properties();
     props.putIfAbsent(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBroker);
-    final String group = KAFKA_IMPORTER_GROUP + (ignoreShardRouting ? ":" + core.getName() : "");
+    final String group = KAFKA_IMPORTER_GROUP + (ignoreShardRouting ? ":" + subGroupId : "");
     props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, group);
     props.putIfAbsent(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
     props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SerdeFactory.getDeserializer(dataType).getName());
