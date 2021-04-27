@@ -137,7 +137,6 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     if (importer == null || !importer.isRunning()) {
       rsp.add("status", "SolrKafka not running");
       rsp.add("running", false);
-      return;
     }
 
     // Handle the provided action
@@ -147,7 +146,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       rsp.add("running", false);
     } else if (!action.equalsIgnoreCase("status")) {
       rsp.add("status", "Unknown command provided");
-      rsp.add("running", true);
+      rsp.add("running", importer != null && importer.isRunning());
     }
   }
 
@@ -260,9 +259,9 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     }
   }
 
-  public static boolean isCoreEligible(SolrCore core) throws InterruptedException {
+  public boolean isCoreEligible(SolrCore core) throws InterruptedException {
     CloudDescriptor cloud = core.getCoreDescriptor().getCloudDescriptor();
-    if (cloud == null || cloud.getReplicaType() == Replica.Type.NRT) {
+    if (cloud == null || (cloud.getReplicaType() == Replica.Type.NRT && ignoreShardRouting)) {
       return true;
     }
 
@@ -427,14 +426,12 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       }
 
 
-      if (importer == null || !importer.isRunning()) {
+      if ((importer == null || !importer.isRunning()) && shouldRun) {
         log.info("Starting importer from ZK watch callback for core {}", core.getName());
         startImporter();
-      } else if (importer != null && importer.isRunning()) {
+      } else if (importer != null && importer.isRunning() && !shouldRun) {
         log.info("Stopping importer from ZK watch callback for core {}", core.getName());
-        if (importer != null) {
-          importer.stop();
-        }
+        importer.stop();
       }
     }, null);
   }
