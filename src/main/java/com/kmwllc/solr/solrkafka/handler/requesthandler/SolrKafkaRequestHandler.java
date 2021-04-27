@@ -5,6 +5,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.cloud.CloudDescriptor;
 import org.apache.solr.common.SolrException;
+import org.apache.solr.common.cloud.Replica;
 import org.apache.solr.common.cloud.SolrZkClient;
 import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.core.CloseHook;
@@ -90,18 +91,18 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     rsp.add("status",
         importer == null ? "NOT_INITIALIZED" :
             importer.isRunning() ? "RUNNING" : "STOPPED");
-    if (importer != null && importer.isThreadAlive()) {
-      Map<String, Long> consumerGroupLag = importer.getConsumerGroupLag2();
-      rsp.add("consumer_group_lag", consumerGroupLag);
-      rsp.add("total_offset", consumerGroupLag.values().stream().mapToLong(l -> l).sum());
-    } else {
-      rsp.add("consumer_group_lag", "STOPPED");
-    }
+    Map<String, Long> consumerGroupLag = KafkaImporter.getConsumerGroupLag2();
+    rsp.add("consumer_group_lag", consumerGroupLag);
+    rsp.add("total_offset", consumerGroupLag.values().stream().mapToLong(l -> l).sum());
+
+    rsp.add("shouldRun", shouldRun);
 
     // Determines if this is the current leader and adds that information to the response
     try {
       boolean isLeader = isCoreLeader(core);
       rsp.add("leader", isLeader);
+      boolean isEligible = isCoreEligible(core);
+      rsp.add("eligible", isEligible);
     } catch (InterruptedException e) {
       log.error("Interrupted while determining core leader status", e);
       rsp.add("message", "Could not determine core leader status, exiting");
@@ -259,6 +260,15 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     }
   }
 
+  public static boolean isCoreEligible(SolrCore core) throws InterruptedException {
+    CloudDescriptor cloud = core.getCoreDescriptor().getCloudDescriptor();
+    if (cloud == null || cloud.getReplicaType() == Replica.Type.NRT) {
+      return true;
+    }
+
+    return isCoreLeader(core);
+  }
+
   /**
    * Determines if the given {@link SolrCore} is the leader of its replicas. If Solr is not run in cloud mode,
    * it will always return true.
@@ -279,21 +289,22 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
 
   @Override
   public void inform(SolrCore core) {
-    log.info("New SolrCore provided");
+    try {
+      log.info("New SolrCore provided");
 
-    this.core = core;
+      this.core = core;
 
-    if (isCloudMode(core) && !hasBeenSetup) {
-      int i = 0;
-      SolrZkClient client = core.getCoreContainer().getZkController().getZkClient();
-      keeper = client.getSolrZooKeeper();
-      while (true)  {
-        // TODO: will make a best attempt to not immediately begin running, but no promises
-        try {
-//          Stat stat = keeper.exists(ZK_PLUGIN_PATH, false);
-          // TODO: do we actually need to reset here?
-          //   might only need to worry about it for all shard routing?
+      if (isCloudMode(core) && !hasBeenSetup) {
+        int i = 0;
+        SolrZkClient client = core.getCoreContainer().getZkController().getZkClient();
+        keeper = client.getSolrZooKeeper();
+        while (true) {
+          // TODO: will make a best attempt to not immediately begin running, but no promises
           try {
+//          Stat stat = keeper.exists(ZK_PLUGIN_PATH, false);
+            // TODO: do we actually need to reset here?
+            //   might only need to worry about it for all shard routing?
+            try {
 //            if (stat != null) {
 //              log.info("ZK plugin node found, will not attempt to re-create");
 //              List<String> children = keeper.getChildren(ZK_PLUGIN_PATH, false);
@@ -304,14 +315,14 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
 //              }
 //            } else {
 //            if (stat == null) {
-            client.create(ZK_PLUGIN_PATH, "STOPPED".getBytes(StandardCharsets.UTF_8),
-                CreateMode.PERSISTENT, true);
-            log.info("ZK plugin node created");
+              client.create(ZK_PLUGIN_PATH, "STOPPED".getBytes(StandardCharsets.UTF_8),
+                  CreateMode.PERSISTENT, true);
+              log.info("ZK plugin node created");
 //            }
 
-          } catch (KeeperException.NodeExistsException e) {
-            log.info("ZK plugin node not originally found but has been created externally, skipping creation");
-          }
+            } catch (KeeperException.NodeExistsException e) {
+              log.info("ZK plugin node not originally found but has been created externally, skipping creation");
+            }
 //          } catch (KeeperException.BadVersionException e) {
 //            log.info("ZK plugin status updated concurrently, skipping update");
 //          }
@@ -324,51 +335,61 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
 //            log.info("Plugin ephemeral node already exists for core {}, skipping creation", core.getName());
 //          }
 
-          core.getCoreContainer().getZkController().getZkClient().getSolrZooKeeper()
-              .addWatch(ZK_PLUGIN_PATH, this, AddWatchMode.PERSISTENT_RECURSIVE);
-          Stat stat = keeper.exists(ZK_PLUGIN_PATH, false);
-          shouldRun = new String(keeper.getData(ZK_PLUGIN_PATH, false, stat), StandardCharsets.UTF_8)
-              .trim().equals("RUNNING");
-          log.info("Created {}/{} node and watcher, shouldRun = {}", ZK_PLUGIN_PATH, core.getName(), shouldRun);
-          break;
-        } catch (InterruptedException e) {
-          log.error("Interrupted while setting up cloud mode", e);
-          break;
-        } catch (KeeperException e) {
-          log.error("Error occurred while setting up Zookeeper state", e);
-        }
-        if (++i > 10) {
-          log.error("Could not initialize ZK client");
-          return;
-        }
-      }
-    }
-    hasBeenSetup = true;
-
-    // Stop the currently running importer
-    if (importer != null) {
-      log.info("Setting new core in importer");
-      importer.stop();
-    }
-
-    // If we've been set up to run, start running
-    if (shouldRun) {
-      startImporter();
-    }
-
-    // Add hook to stop the importer when the core is shutting down
-    core.addCloseHook(new CloseHook() {
-      @Override
-      public void preClose(SolrCore core) {
-        log.info("SolrCore shutting down");
-        if (importer != null) {
-          importer.stop();
+            core.getCoreContainer().getZkController().getZkClient().getSolrZooKeeper()
+                .addWatch(ZK_PLUGIN_PATH, this, AddWatchMode.PERSISTENT_RECURSIVE);
+            Stat stat = keeper.exists(ZK_PLUGIN_PATH, false);
+            shouldRun = new String(keeper.getData(ZK_PLUGIN_PATH, false, stat), StandardCharsets.UTF_8)
+                .trim().equals("RUNNING");
+            log.info("Created {}/{} node and watcher, shouldRun = {}", ZK_PLUGIN_PATH, core.getName(), shouldRun);
+            break;
+          } catch (InterruptedException e) {
+            log.error("Interrupted while setting up cloud mode", e);
+            break;
+          } catch (KeeperException e) {
+            log.error("Error occurred while setting up Zookeeper state", e);
+          }
+          if (++i > 10) {
+            log.error("Could not initialize ZK client");
+            return;
+          }
         }
       }
+      hasBeenSetup = true;
 
-      @Override
-      public void postClose(SolrCore core) { }
-    });
+      // Stop the currently running importer
+      if (importer != null) {
+        log.info("Setting new core in importer");
+        importer.stop();
+      }
+
+      try {
+        // If we've been set up to run, start running
+        if (shouldRun && isCoreEligible(core)) {
+          startImporter();
+        } else if (!isCoreEligible(core)) {
+          log.info("Not starting importer because core is not eligible to start");
+        }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+
+      // Add hook to stop the importer when the core is shutting down
+      core.addCloseHook(new CloseHook() {
+        @Override
+        public void preClose(SolrCore core) {
+          log.info("SolrCore shutting down");
+          if (importer != null) {
+            importer.stop();
+          }
+        }
+
+        @Override
+        public void postClose(SolrCore core) {
+        }
+      });
+    } catch (Throwable e) {
+      log.fatal("SolrKafkaRequestHandler could not be set up", e);
+    }
   }
 
   @Override
@@ -389,15 +410,28 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
 
       String text = new String(data, StandardCharsets.UTF_8).trim();
 
-      if (text.equalsIgnoreCase("RUNNING")
-          && (importer == null || !importer.isRunning())) {
+      if (!(text.equalsIgnoreCase("RUNNING") || text.equalsIgnoreCase("STOPPED"))) {
+        log.info("Unknown status received from Zookeeper");
+        return;
+      }
+
+      shouldRun = text.equalsIgnoreCase("RUNNING");
+
+      try {
+        if (!isCoreEligible(core)) {
+          log.info("Received process event from ZK but core is not eligible to start");
+          return;
+        }
+      } catch (InterruptedException e) {
+        return;
+      }
+
+
+      if (importer == null || !importer.isRunning()) {
         log.info("Starting importer from ZK watch callback for core {}", core.getName());
-        shouldRun = true;
         startImporter();
-      } else if (text.equalsIgnoreCase("STOPPED")
-          && (importer != null && importer.isRunning())) {
+      } else if (importer != null && importer.isRunning()) {
         log.info("Stopping importer from ZK watch callback for core {}", core.getName());
-        shouldRun = false;
         if (importer != null) {
           importer.stop();
         }

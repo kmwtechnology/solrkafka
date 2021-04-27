@@ -217,7 +217,7 @@ public class KafkaImporter implements Runnable {
     }
   }
 
-  public Map<String, Long> getConsumerGroupLag2() {
+  public static Map<String, Long> getConsumerGroupLag2() {
     Properties props = new Properties();
     props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
     try (Admin admin = Admin.create(props)) {
@@ -235,7 +235,7 @@ public class KafkaImporter implements Runnable {
               Collectors.toMap(Map.Entry::getKey, o -> OffsetSpec.latest()))).all().get(10000, TimeUnit.MILLISECONDS)
           .entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, o -> o.getValue().offset())));
         }
-        offsets.forEach((k, v) -> map.put(k + group.groupId(), ends.get(k) - v.offset()));
+        offsets.forEach((k, v) -> map.put(k + ":" + group.groupId(), ends.get(k) - v.offset()));
       }
       return map;
     } catch (InterruptedException | ExecutionException | TimeoutException e) {
