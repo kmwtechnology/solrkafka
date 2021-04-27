@@ -24,8 +24,8 @@ public class SolrDocumentKafkaPublisher {
 
 	private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 	
-//	private final static String TOPIC = "testtopic";
-	private final static String TOPIC = "testtopic1";
+	private final static String TOPIC = "testtopic";
+//	private final static String TOPIC = "testtopic1";
 	private final static String BOOTSTRAP_SERVERS = "localhost:9092";
 	private final static String CLIENT_ID = "KafkaExampleProducer";
 //	private static final int sendMessageCount = 25_000; // 25_000 for 10kb docs, 100_000 for .1kb docs

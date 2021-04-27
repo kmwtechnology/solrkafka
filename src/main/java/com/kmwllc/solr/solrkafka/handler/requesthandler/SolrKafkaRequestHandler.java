@@ -91,7 +91,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
         importer == null ? "NOT_INITIALIZED" :
             importer.isRunning() ? "RUNNING" : "STOPPED");
     if (importer != null && importer.isThreadAlive()) {
-      Map<String, Long> consumerGroupLag = importer.getConsumerGroupLag();
+      Map<String, Long> consumerGroupLag = importer.getConsumerGroupLag2();
       rsp.add("consumer_group_lag", consumerGroupLag);
       rsp.add("total_offset", consumerGroupLag.values().stream().mapToLong(l -> l).sum());
     } else {

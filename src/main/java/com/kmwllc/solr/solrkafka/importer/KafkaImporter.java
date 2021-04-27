@@ -1,6 +1,11 @@
 package com.kmwllc.solr.solrkafka.importer;
 
 import com.kmwllc.solr.solrkafka.datatype.SerdeFactory;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.ConsumerGroupListing;
+import org.apache.kafka.clients.admin.ListConsumerGroupsOptions;
+import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -27,6 +32,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.TemporalAmount;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 /**
@@ -206,6 +214,32 @@ public class KafkaImporter implements Runnable {
       return allOffsets;
     } else {
       return getCoreLag("");
+    }
+  }
+
+  public Map<String, Long> getConsumerGroupLag2() {
+    Properties props = new Properties();
+    props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+    try (Admin admin = Admin.create(props)) {
+      Map<String, Long> map = new HashMap<>();
+      Map<TopicPartition, Long> ends = new HashMap<>();
+      Collection<ConsumerGroupListing> groups = admin.listConsumerGroups().valid().get(10000, TimeUnit.MILLISECONDS);
+      for (ConsumerGroupListing group : groups) {
+        if (!group.groupId().contains(KAFKA_IMPORTER_GROUP)) {
+          continue;
+        }
+        Map<TopicPartition, OffsetAndMetadata> offsets = admin.listConsumerGroupOffsets(group.groupId())
+            .partitionsToOffsetAndMetadata().get(10000, TimeUnit.MILLISECONDS);
+        if (ends.isEmpty()) {
+          ends.putAll(admin.listOffsets(offsets.entrySet().stream().collect(
+              Collectors.toMap(Map.Entry::getKey, o -> OffsetSpec.latest()))).all().get(10000, TimeUnit.MILLISECONDS)
+          .entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, o -> o.getValue().offset())));
+        }
+        offsets.forEach((k, v) -> map.put(k + group.groupId(), ends.get(k) - v.offset()));
+      }
+      return map;
+    } catch (InterruptedException | ExecutionException | TimeoutException e) {
+      throw new IllegalStateException(e);
     }
   }
 
