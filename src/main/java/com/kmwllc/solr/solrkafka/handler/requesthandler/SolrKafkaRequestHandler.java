@@ -5,6 +5,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.cloud.CloudDescriptor;
 import org.apache.solr.common.SolrException;
+import org.apache.solr.common.cloud.ClusterState;
+import org.apache.solr.common.cloud.DocCollection;
 import org.apache.solr.common.cloud.Replica;
 import org.apache.solr.common.cloud.SolrZkClient;
 import org.apache.solr.common.params.CommonParams;
@@ -81,17 +83,20 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
 
     rsp.add("current_core", core.getName());
 
-    if (core.getCoreDescriptor().getCloudDescriptor() == null && this.ignoreShardRouting) {
-      String msg = "Ignore shard routing set to true, but cluster is not running in cloud mode";
-      rsp.add("message", msg + ". Run in cloud mode to use this feature.");
+    // TODO: document not using all shard routing with TLOGs
+    // TODO: document that we don't support legacy mode
+    if ((core.getCoreDescriptor().getCloudDescriptor() == null || clusterContainsTlogs()) && ignoreShardRouting) {
+      String msg = "Ignore shard routing set to true, but cluster is not running in cloud mode or a replica type is TLOG";
+      rsp.add("message", msg + ". Run in cloud mode to use this feature or change replica type.");
       rsp.setException(new IllegalStateException(msg));
+      log.error(msg);
       return;
     }
 
     rsp.add("status",
         importer == null ? "NOT_INITIALIZED" :
             importer.isRunning() ? "RUNNING" : "STOPPED");
-    Map<String, Long> consumerGroupLag = KafkaImporter.getConsumerGroupLag2();
+    Map<String, Long> consumerGroupLag = KafkaImporter.getConsumerGroupLag(kafkaBroker);
     rsp.add("consumer_group_lag", consumerGroupLag);
     rsp.add("total_offset", consumerGroupLag.values().stream().mapToLong(l -> l).sum());
 
@@ -101,7 +106,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     try {
       boolean isLeader = isCoreLeader(core);
       rsp.add("leader", isLeader);
-      boolean isEligible = isCoreEligible(core);
+      boolean isEligible = isCoreEligible();
       rsp.add("eligible", isEligible);
     } catch (InterruptedException e) {
       log.error("Interrupted while determining core leader status", e);
@@ -153,7 +158,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
   private void changeRunningState(boolean start) {
     shouldRun = start;
     final String state = start ? "RUNNING" : "STOPPED";
-    if (isCloudMode(core)) {
+    if (core.getCoreDescriptor().getCloudDescriptor() != null) {
       log.info("Changing running state to {} in cloud mode", state);
       int i = 0;
       while (true) {
@@ -259,13 +264,24 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     }
   }
 
-  public boolean isCoreEligible(SolrCore core) throws InterruptedException {
+  public boolean isCoreEligible() throws InterruptedException {
     CloudDescriptor cloud = core.getCoreDescriptor().getCloudDescriptor();
-    if (cloud == null || (cloud.getReplicaType() == Replica.Type.NRT && ignoreShardRouting)) {
+    if (cloud == null || !ignoreShardRouting || cloud.getReplicaType() == Replica.Type.NRT) {
       return true;
     }
 
     return isCoreLeader(core);
+  }
+
+  public boolean clusterContainsTlogs() {
+    CloudDescriptor cloud = core.getCoreDescriptor().getCloudDescriptor();
+    if (cloud == null) {
+      return false;
+    }
+    String collectionName = cloud.getCollectionName();
+    ClusterState cluster = core.getCoreContainer().getZkController().getClusterState();
+    DocCollection coll = cluster.getCollection(collectionName);
+    return coll.getReplicas().stream().anyMatch(replica -> replica.getType() == Replica.Type.TLOG);
   }
 
   /**
@@ -282,18 +298,15 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
         cloud.getCollectionName(), cloud.getShardId()).getName().equals(cloud.getCoreNodeName());
   }
 
-  public static boolean isCloudMode(SolrCore core) {
-    return core.getCoreDescriptor().getCloudDescriptor() != null;
-  }
-
   @Override
   public void inform(SolrCore core) {
     try {
       log.info("New SolrCore provided");
 
       this.core = core;
+      CloudDescriptor cloud = core.getCoreDescriptor().getCloudDescriptor();
 
-      if (isCloudMode(core) && !hasBeenSetup) {
+      if (cloud != null && !hasBeenSetup && cloud.getReplicaType() != Replica.Type.PULL) {
         int i = 0;
         SolrZkClient client = core.getCoreContainer().getZkController().getZkClient();
         keeper = client.getSolrZooKeeper();
@@ -363,9 +376,9 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
 
       try {
         // If we've been set up to run, start running
-        if (shouldRun && isCoreEligible(core)) {
+        if (shouldRun && isCoreEligible()) {
           startImporter();
-        } else if (!isCoreEligible(core)) {
+        } else if (!isCoreEligible()) {
           log.info("Not starting importer because core is not eligible to start");
         }
       } catch (InterruptedException e) {
@@ -417,7 +430,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       shouldRun = text.equalsIgnoreCase("RUNNING");
 
       try {
-        if (!isCoreEligible(core)) {
+        if (!isCoreEligible()) {
           log.info("Received process event from ZK but core is not eligible to start");
           return;
         }
