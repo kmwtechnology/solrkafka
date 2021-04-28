@@ -4,7 +4,6 @@ import com.kmwllc.solr.solrkafka.datatype.SerdeFactory;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.ConsumerGroupListing;
-import org.apache.kafka.clients.admin.ListConsumerGroupsOptions;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.TopicPartition;
@@ -14,7 +13,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
-import org.apache.solr.common.cloud.Replica;
 import org.apache.solr.common.params.MultiMapSolrParams;
 import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.common.util.NamedList;
@@ -56,6 +54,7 @@ public class KafkaImporter implements Runnable {
   private final String dataType;
   private final boolean ignoreShardRouting;
   private final int kafkaPollInterval;
+  private final boolean autoOffsetResetBeginning;
 
   static {
     SOLR_REQUEST_ARGS.add("commitWithin", "1000");
@@ -69,7 +68,7 @@ public class KafkaImporter implements Runnable {
    * @param ignoreShardRouting {@code true} if all documents should be added to every shard
    */
   public KafkaImporter(SolrCore core, String kafkaBroker, List<String> topicNames, long commitInterval,
-                       boolean ignoreShardRouting, String dataType, int kafkaPollInterval) {
+                       boolean ignoreShardRouting, String dataType, int kafkaPollInterval, boolean autoOffsetResetBeginning) {
     this.topicNames = topicNames;
     this.ignoreShardRouting = ignoreShardRouting;
     this.core = core;
@@ -77,6 +76,7 @@ public class KafkaImporter implements Runnable {
     this.updateHandler = createUpdateHandler(core);
     this.commitInterval = Duration.ofMillis(commitInterval);
     this.kafkaPollInterval = kafkaPollInterval;
+    this.autoOffsetResetBeginning = autoOffsetResetBeginning;
     this.dataType = dataType;
     thread = new Thread(this, "KafkaImporter Async Runnable");
   }
@@ -203,7 +203,7 @@ public class KafkaImporter implements Runnable {
     }
   }
 
-  public static Map<String, Long> getConsumerGroupLag(String kafkaBroker) {
+  public static Map<String, Long> getConsumerGroupLag(String kafkaBroker, List<String> topics) {
     Properties props = new Properties();
     props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBroker);
     try (Admin admin = Admin.create(props)) {
@@ -217,11 +217,16 @@ public class KafkaImporter implements Runnable {
         Map<TopicPartition, OffsetAndMetadata> offsets = admin.listConsumerGroupOffsets(group.groupId())
             .partitionsToOffsetAndMetadata().get(10000, TimeUnit.MILLISECONDS);
         if (ends.isEmpty()) {
-          ends.putAll(admin.listOffsets(offsets.entrySet().stream().collect(
-              Collectors.toMap(Map.Entry::getKey, o -> OffsetSpec.latest()))).all().get(10000, TimeUnit.MILLISECONDS)
-          .entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, o -> o.getValue().offset())));
+          ends.putAll(
+              admin.listOffsets(
+                  offsets.entrySet().stream().collect(
+                      Collectors.toMap(Map.Entry::getKey, o -> OffsetSpec.latest()))).all()
+                  .get(10000, TimeUnit.MILLISECONDS)
+                  .entrySet().stream().filter(offset -> topics.contains(offset.getKey().topic()))
+                  .collect(Collectors.toMap(Map.Entry::getKey, o -> o.getValue().offset())));
         }
-        offsets.forEach((k, v) -> map.put(k + ":" + group.groupId(), ends.get(k) - v.offset()));
+        offsets.entrySet().stream().filter(val -> ends.containsKey(val.getKey()))
+            .forEach(k -> map.put(k.getKey() + ":" + group.groupId(), ends.get(k.getKey()) - k.getValue().offset()));
       }
       return map;
     } catch (InterruptedException | ExecutionException | TimeoutException e) {
@@ -242,8 +247,7 @@ public class KafkaImporter implements Runnable {
     props.putIfAbsent(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
     props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SerdeFactory.getDeserializer(dataType).getName());
     props.putIfAbsent(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-    // TODO: configurable from solrconfig or path?
-    props.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+    props.putIfAbsent(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, autoOffsetResetBeginning ? "earliest" : "latest");
     props.putIfAbsent(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, kafkaPollInterval);
 
     ClassLoader loader = Thread.currentThread().getContextClassLoader();

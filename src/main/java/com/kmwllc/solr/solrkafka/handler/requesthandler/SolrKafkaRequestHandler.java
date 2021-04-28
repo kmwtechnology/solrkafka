@@ -32,8 +32,10 @@ import org.apache.zookeeper.data.Stat;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * A handler to start (or confirm the start of) the SolrKafka plugin. Creates a new {@link KafkaImporter},
@@ -44,6 +46,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     implements SolrCoreAware, PluginInfoInitialized, PermissionNameProvider, Watcher {
   private static final Logger log = LogManager.getLogger(SolrKafkaRequestHandler.class);
   public static final String ZK_PLUGIN_PATH = "/solrkafka";
+  public String zkCollectionPath = "";
   private SolrCore core;
   private KafkaImporter importer;
   private String incomingDataType = "solr";
@@ -55,6 +58,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
   private volatile ZooKeeper keeper;
   private volatile boolean hasBeenSetup = false;
   private int kafkaPollInterval = 45000;
+  private boolean autoOffsetResetBeginning = true;
 
   public SolrKafkaRequestHandler() {
     log.info("Kafka Request Handler created.");
@@ -70,35 +74,20 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
    */
   @Override
   public void handleRequestBody(SolrQueryRequest req, SolrQueryResponse rsp) {
-
-    // Ends this request if a circuit breaker is fired
-    CircuitBreakerManager circuitBreakerManager = req.getCore().getCircuitBreakerManager();
-    List<CircuitBreaker> breakers = circuitBreakerManager.checkTripped();
-    if (breakers != null) {
-      String errorMsg = CircuitBreakerManager.toErrorMessage(breakers);
-      rsp.add(CommonParams.STATUS, CommonParams.FAILURE);
-      rsp.setException(new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE, "Circuit Breakers tripped " + errorMsg));
-      return;
-    }
-
     rsp.add("current_core", core.getName());
-
-    // TODO: document not using all shard routing with TLOGs
-    // TODO: document that we don't support legacy mode
-    if ((core.getCoreDescriptor().getCloudDescriptor() == null || clusterContainsTlogs()) && ignoreShardRouting) {
-      String msg = "Ignore shard routing set to true, but cluster is not running in cloud mode or a replica type is TLOG";
-      rsp.add("message", msg + ". Run in cloud mode to use this feature or change replica type.");
-      rsp.setException(new IllegalStateException(msg));
-      log.error(msg);
-      return;
-    }
 
     rsp.add("status",
         importer == null ? "NOT_INITIALIZED" :
             importer.isRunning() ? "RUNNING" : "STOPPED");
-    Map<String, Long> consumerGroupLag = KafkaImporter.getConsumerGroupLag(kafkaBroker);
+    Map<String, Long> consumerGroupLag = KafkaImporter.getConsumerGroupLag(kafkaBroker, topicNames);
     rsp.add("consumer_group_lag", consumerGroupLag);
-    rsp.add("total_offset", consumerGroupLag.values().stream().mapToLong(l -> l).sum());
+    rsp.add("total_lag", consumerGroupLag.values().stream().mapToLong(l -> l).sum());
+    Optional<Map.Entry<String, Long>> maxPartition =
+        consumerGroupLag.entrySet().stream().max(Comparator.comparingLong(Map.Entry::getValue));
+      if (maxPartition.isPresent()) {
+        rsp.add("max_partition_lag", maxPartition.get().getValue());
+        rsp.add("most_behind_partition", maxPartition.get().getKey());
+      }
 
     rsp.add("shouldRun", shouldRun);
 
@@ -131,6 +120,24 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
 
     // If the start action is supplied, setup and maybe start the importer
     if (action.equalsIgnoreCase("start")) {
+      if ((core.getCoreDescriptor().getCloudDescriptor() == null || clusterContainsTlogs()) && ignoreShardRouting) {
+        String msg = "Ignore shard routing set to true, but cluster is not running in cloud mode or a replica type is TLOG";
+        rsp.add("message", msg + ". Run in cloud mode to use this feature or change replica type.");
+        rsp.setException(new IllegalStateException(msg));
+        log.error(msg);
+        return;
+      }
+
+      // Ends this request if a circuit breaker is fired
+      CircuitBreakerManager circuitBreakerManager = req.getCore().getCircuitBreakerManager();
+      List<CircuitBreaker> breakers = circuitBreakerManager.checkTripped();
+      if (breakers != null) {
+        String errorMsg = CircuitBreakerManager.toErrorMessage(breakers);
+        rsp.add(CommonParams.STATUS, CommonParams.FAILURE);
+        rsp.setException(new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE, "Circuit Breakers tripped " + errorMsg));
+        return;
+      }
+
       changeRunningState(true);
 
       rsp.add("status", "started");
@@ -163,18 +170,24 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       int i = 0;
       while (true) {
         try {
-          Stat stat = keeper.exists(ZK_PLUGIN_PATH, false);
-          keeper.setData(ZK_PLUGIN_PATH, state.getBytes(StandardCharsets.UTF_8),
+          Stat stat = keeper.exists(zkCollectionPath, false);
+          keeper.setData(zkCollectionPath, state.getBytes(StandardCharsets.UTF_8),
               stat.getVersion());
           break;
         } catch (InterruptedException e) {
-          log.error("Interrupted");
+          log.error("Interrupted", e);
           return;
         } catch (KeeperException e) {
           log.error("ZK error encountered, trying set again", e);
         }
         if (i++ > 10) {
           log.info("Failed to change state after 10 attempts");
+          return;
+        }
+        try {
+          Thread.sleep(1);
+        } catch (InterruptedException e) {
+          log.error("Interrupted", e);
           return;
         }
       }
@@ -192,7 +205,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
   /**
    * Sets up and starts a new importer.
    */
-  private void startImporter() {
+  private synchronized void startImporter() {
     // Exit if there's already an importer running
     if (importer != null && importer.isThreadAlive()) {
       log.info("Importer already running, skipping start process");
@@ -207,7 +220,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
 
     // Create the importer
     importer = new KafkaImporter(core, kafkaBroker, topicNames, commitInterval,
-        ignoreShardRouting, incomingDataType, kafkaPollInterval);
+        ignoreShardRouting, incomingDataType, kafkaPollInterval, autoOffsetResetBeginning);
 
 
     // Sets up the status handler and starts the importer
@@ -242,6 +255,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     Object topicNames = info.initArgs.findRecursive("defaults", "topicNames");
     Object kafkaBroker = info.initArgs.findRecursive("defaults", "kafkaBroker");
     Object kafkaPollInterval = info.initArgs.findRecursive("defaults", "kafkaPollInterval");
+    Object autoOffsetResetConfig = info.initArgs.findRecursive("defaults", "autoOffsetResetConfig");
 
     // If the values from the defaults section are present, override
     if (incomingDataType != null) {
@@ -261,6 +275,9 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     }
     if (kafkaPollInterval != null) {
       this.kafkaPollInterval = Integer.parseInt(kafkaPollInterval.toString());
+    }
+    if (autoOffsetResetConfig != null) {
+      this.autoOffsetResetBeginning = autoOffsetResetConfig.toString().equalsIgnoreCase("beginning");
     }
   }
 
@@ -307,52 +324,27 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       CloudDescriptor cloud = core.getCoreDescriptor().getCloudDescriptor();
 
       if (cloud != null && !hasBeenSetup && cloud.getReplicaType() != Replica.Type.PULL) {
+        zkCollectionPath = ZK_PLUGIN_PATH + "-" + cloud.getCollectionName();
         int i = 0;
         SolrZkClient client = core.getCoreContainer().getZkController().getZkClient();
         keeper = client.getSolrZooKeeper();
         while (true) {
-          // TODO: will make a best attempt to not immediately begin running, but no promises
           try {
-//          Stat stat = keeper.exists(ZK_PLUGIN_PATH, false);
-            // TODO: do we actually need to reset here?
-            //   might only need to worry about it for all shard routing?
             try {
-//            if (stat != null) {
-//              log.info("ZK plugin node found, will not attempt to re-create");
-//              List<String> children = keeper.getChildren(ZK_PLUGIN_PATH, false);
-//              log.info("ZK plugin node children: {}", children);
-//              if (children.isEmpty()) {
-//                log.info("ZK plugin node has no children, making sure plugin is not running on start");
-//                keeper.setData(ZK_PLUGIN_PATH, "STOPPED".getBytes(StandardCharsets.UTF_8), stat.getVersion());
-//              }
-//            } else {
-//            if (stat == null) {
-              client.create(ZK_PLUGIN_PATH, "STOPPED".getBytes(StandardCharsets.UTF_8),
+              client.create(zkCollectionPath, "STOPPED".getBytes(StandardCharsets.UTF_8),
                   CreateMode.PERSISTENT, true);
               log.info("ZK plugin node created");
-//            }
 
             } catch (KeeperException.NodeExistsException e) {
               log.info("ZK plugin node not originally found but has been created externally, skipping creation");
             }
-//          } catch (KeeperException.BadVersionException e) {
-//            log.info("ZK plugin status updated concurrently, skipping update");
-//          }
-
-//          if (!client.exists(ZK_PLUGIN_PATH + "/" + core.getName(), true)) {
-//            log.info("Plugin ephemeral node for core {} does not exist, creating it now", core.getName());
-//            client.create(ZK_PLUGIN_PATH + "/" + core.getName(), core.getName().getBytes(StandardCharsets.UTF_8),
-//                CreateMode.EPHEMERAL, true);
-//          } else {
-//            log.info("Plugin ephemeral node already exists for core {}, skipping creation", core.getName());
-//          }
 
             core.getCoreContainer().getZkController().getZkClient().getSolrZooKeeper()
-                .addWatch(ZK_PLUGIN_PATH, this, AddWatchMode.PERSISTENT_RECURSIVE);
-            Stat stat = keeper.exists(ZK_PLUGIN_PATH, false);
-            shouldRun = new String(keeper.getData(ZK_PLUGIN_PATH, false, stat), StandardCharsets.UTF_8)
+                .addWatch(zkCollectionPath, this, AddWatchMode.PERSISTENT_RECURSIVE);
+            Stat stat = keeper.exists(zkCollectionPath, false);
+            shouldRun = new String(keeper.getData(zkCollectionPath, false, stat), StandardCharsets.UTF_8)
                 .trim().equals("RUNNING");
-            log.info("Created {}/{} node and watcher, shouldRun = {}", ZK_PLUGIN_PATH, core.getName(), shouldRun);
+            log.info("Created {}/{} node and watcher, shouldRun = {}", zkCollectionPath, core.getName(), shouldRun);
             break;
           } catch (InterruptedException e) {
             log.error("Interrupted while setting up cloud mode", e);
@@ -407,11 +399,11 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
   @Override
   public void process(WatchedEvent event) {
     log.info("ZK watcher callback event received in core {}", core.getName());
-    if (!event.getPath().equals(ZK_PLUGIN_PATH) || event.getType() != Event.EventType.NodeDataChanged) {
+    if (!event.getPath().equals(zkCollectionPath) || event.getType() != Event.EventType.NodeDataChanged) {
       return;
     }
 
-    keeper.getData(ZK_PLUGIN_PATH, false, (rc, path, ctx, data, stat) -> {
+    keeper.getData(zkCollectionPath, false, (rc, path, ctx, data, stat) -> {
       if (rc != KeeperException.Code.OK.intValue()) {
         log.error("Non-OK code received in ZK callback for core {}: {}, stopping importer", core.getName(), rc);
         if (importer != null && !importer.isRunning()) {

@@ -7,11 +7,8 @@ a setup process for Solr v8.x.
 
 ### Copy Dependencies
 
-Build the project with Maven (skipping tests with `mvn clean install -DskipTests` for now) and get the JAR produced
-in target/. Copy that to <solr_install>/lib, which you'll have to create. You'll also need to copy over 
-kafka-clients-<version>.jar, a dependency required by this plugin. You can find it at 
-~/.m2/repository/org/apache/kafka/kafka-clients/<version>/<jar>. The solrconfig.xml file in 
-conf/solr/collection1/conf/ contains references to these JAR files at that location.
+Build the project with Maven and get the JAR produced
+in target/. Copy that to <solr_install>/lib, which you'll have to create.
 
 ### Start Kafka
 
@@ -69,9 +66,18 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
         <str name="topicName">testtopic</str>
         <!-- The max poll interval for Kafka. -->
         <str name="kafkaPollInterval">45000</str>
+        <!-- Kafka consumer behavior when no previous offset is found. Acceptable values are "latest" or "beginning". -->
+        <str name="autoOffsetResetConfig">beginning</str>
     </lst>
 </requestHandler>
 ```
+
+#### IgnoreShardRouting Caveats
+
+- This mode cannot currently be run with TLOG replicas in your collection. If it is attempted, an error will be
+returned with the response on startup.
+- Solr legacy mode is not supported.
+- The Kafka record ID should be the same as the document ID.
 
 ### Create Your Collection Schema
 
@@ -117,29 +123,3 @@ one of the following values (if multiple values are provided, only the first is 
 - `stop`: Shuts down the importer if it hasn't stopped on its own.
 - `status`: Shows the status of the indexer
 
-### Distrib Handler
-
-This handler is only required if you're using the `ignoreShardRouting` configuration to send documents to all shards.
-If it is not being used, then feel free to omit this handler.
-
-This is an internal handler used for distributing the document to all shards and replicas other than the core it was
-initially indexed on. This handler __SHOULD NOT__ be used by anything other than this importer. Be sure you don't
-change the name of the data handler's name in your solrconfig.xml, it is currently hard coded in the plugin's
-configuration.
-
-## Running the (old) DataImportHandler Method
-
-### Set Up kafka-data-config.xml
-
-The `KafkaDataSource` uses the `query` property set in conf/solr/conf/kafka-data-config.xml to determine which
-topic to use. The topic name should be the same as the one you created previously.
-
-### Run the Importer
-
-In the Solr admin UI, navigate to "collection1", and go to the "Dataimport" section. Once you're ready to start, 
-hit the "Execute" button, and you should see documents be imported when you hit refresh.
-
-### Notes
-
-If autocommit is turned on, the data import plugin can be run once, left on, and results will appear
-after autocommit (and collection/core sync).
