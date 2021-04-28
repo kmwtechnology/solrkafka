@@ -140,35 +140,44 @@ public class KafkaImporter implements Runnable {
     long docCount = 0;
     long docCommitInterval = 0;
     Instant prevCommit = Instant.now();
-    try (Consumer<String, SolrDocument> consumer = createConsumer()){
+    try (Consumer<String, SolrDocument> consumer = createConsumer()) {
       while (running) {
         // Consume records from Kafka
-        ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
-        if (!consumerRecords.isEmpty()) {
-          log.info("Processing consumer records. {}", consumerRecords.count());
+        if (!core.getSolrCoreState().registerInFlightUpdate()) {
+          running = false;
+          log.info("In flight update denied, stopping importer");
+          break;
+        }
+        try {
+          ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
+          if (!consumerRecords.isEmpty()) {
+            log.info("Processing consumer records. {}", consumerRecords.count());
 
-          // Process each record provided
-          for (ConsumerRecord<String, SolrDocument> record : consumerRecords) {
-            log.debug("Record received: {}", record);
+            // Process each record provided
+            for (ConsumerRecord<String, SolrDocument> record : consumerRecords) {
+              log.debug("Record received: {}", record);
 
-            // Construct Solr create request
-            SolrQueryRequest request = new LocalSolrQueryRequest(core, SOLR_REQUEST_ARGS);
-            request.setJSON(record.value());
-            AddUpdateCommand add = new AddUpdateCommand(request);
-            add.solrDoc = convertToInputDoc(record.value());
+              // Construct Solr create request
+              SolrQueryRequest request = new LocalSolrQueryRequest(core, SOLR_REQUEST_ARGS);
+              request.setJSON(record.value());
+              AddUpdateCommand add = new AddUpdateCommand(request);
+              add.solrDoc = convertToInputDoc(record.value());
 
-            // Attempt to add the update
-            try {
-              updateHandler.processAdd(add);
-              docCount++;
-              docCommitInterval++;
-            } catch (IOException | SolrException e) {
-              log.error("Couldn't add solr doc...", e);
+              // Attempt to add the update
+              try {
+                updateHandler.processAdd(add);
+                docCount++;
+                docCommitInterval++;
+              } catch (IOException | SolrException e) {
+                log.error("Couldn't add solr doc...", e);
+              }
             }
-          }
 
-        } else {
-          log.info("No records received");
+          } else {
+            log.info("No records received");
+          }
+        } finally {
+          core.getSolrCoreState().deregisterInFlightUpdate();
         }
 
         // If commitInterval has elapsed, commit back to Kafka
