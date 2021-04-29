@@ -316,7 +316,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
   }
 
   @Override
-  public void inform(SolrCore core) {
+  public synchronized void inform(SolrCore core) {
     try {
       log.info("New SolrCore provided");
 
