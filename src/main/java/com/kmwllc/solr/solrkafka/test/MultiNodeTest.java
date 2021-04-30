@@ -24,6 +24,7 @@ import org.apache.zookeeper.KeeperException;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,6 +34,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Runs tests in cloud mode. Sets up the nodes automatically.
@@ -49,7 +54,6 @@ public class MultiNodeTest {
   private static final String kafkaPort = ":9092";
   private final TestDocumentCreator docs;
   private final Path configPath;
-  private String leader;
   private final boolean ignoreShardRouting;
   private final String tlogs;
   private final String pulls;
@@ -142,15 +146,20 @@ public class MultiNodeTest {
       } else {
         log.fatal("Unknown param passed, usage: [-d] [-p DOCS_PATH] [-c CONFIG_PATH] [--cname COLLECTION_NAME] [-k]" +
             "[--pulls NUM_PULL_REPLICAS] [--tlogs NUM_TLOG_REPLICAS] [--nrts|-r NUM_NRT_REPLICAS] [-s NUM_SHARDS] [-i]");
+        System.exit(1);
       }
     }
 
     MultiNodeTest test = new MultiNodeTest(collectionName, docsPath, docker, configPath, ignoreShardRouting,
         nrts, tlogs, pulls, shards, skipSeedKafka);
     test.uploadConfig();
-    test.manageImporter(true);
     try {
+      test.forceCommit();
+      test.checkDocCount(0);
+      test.manageImporter(true);
       test.runTest();
+    } catch (Throwable e) {
+      log.error("Exception occurred while setting up/checking initial state", e);
     } finally {
       test.manageImporter(false);
     }
@@ -213,52 +222,42 @@ public class MultiNodeTest {
    */
   public String makeRequest(HttpUriRequest req, Integer... expectedStatuses) throws IOException {
     log.info("Sending request to: {}", req.getURI());
-    try (CloseableHttpResponse res = client.execute(req);
+    CompletableFuture<CloseableHttpResponse> thread = CompletableFuture.supplyAsync(() -> {
+      try {
+        return client.execute(req);
+      } catch (IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    });
+    try (CloseableHttpResponse res = thread.get(30000, TimeUnit.MILLISECONDS);
          BufferedInputStream entity = new BufferedInputStream(res.getEntity().getContent())) {
       if (!Arrays.asList(expectedStatuses).contains(res.getStatusLine().getStatusCode())) {
         log.error("Invalid response received: {}", new String(entity.readAllBytes()));
-        throw new IllegalStateException("Unexpected status code received");
+        throw new IllegalStateException("Unexpected status code received: " + res.getStatusLine().getStatusCode());
       }
       String body = new String(entity.readAllBytes());
       log.info("Received response: {}", body);
       return body;
+    } catch (TimeoutException | InterruptedException e) {
+      log.error("Concurrent exception while executing request", e);
+      throw new IllegalStateException(e);
+    } catch (ExecutionException e) {
+      if (e.getCause() instanceof UncheckedIOException) {
+        throw new IOException(e);
+      }
+      throw new IllegalStateException(e);
     }
   }
 
   /**
-   * Manages the importer by starting or stopping it. Sets {@link this#leader} to the first replica leader found
-   * so that other methods can refer to the leader that the importer is started on.
+   * Manages the importer by starting or stopping it.
    *
    * @param start {@code true} if the importer should be started, {@link false} if it should be stopped
    */
   public void manageImporter(boolean start) throws IOException {
-    if (leader == null) {
-      HttpGet get = new HttpGet(solrHostPath + "admin/cores?action=STATUS");
-      String bodyString = makeRequest(get);
-      JsonNode body = mapper.readTree(bodyString);
-
-      String nodeName = null;
-      for (JsonNode node : body.get("status")) {
-        // Skip this node if it's part of the wrong collection
-        if (!node.get("cloud").get("collection").textValue().equals(collectionName)) {
-          continue;
-        }
-        nodeName = node.get("name").textValue();
-        log.info("{} SolrKafka importer", start ? "starting" : "stopping");
-        get = new HttpGet(solrHostPath + nodeName + pluginEndpoint + (start ? "" : "?action=stop"));
-        bodyString = makeRequest(get);
-        body = mapper.readTree(bodyString);
-        // If this node is not a leader, start another replica instead
-        if (body.get("leader").booleanValue()) {
-          break;
-        }
-      }
-      leader = nodeName;
-    } else {
-      log.info("{} SolrKafka importer", start ? "starting" : "stopping");
-      HttpGet get = new HttpGet(solrHostPath + leader + pluginEndpoint + (start ? "" : "?action=stop"));
-      makeRequest(get);
-    }
+    log.info("{} SolrKafka importer", start ? "starting" : "stopping");
+    HttpGet get = new HttpGet(solrHostPath + collectionName + pluginEndpoint + (start ? "" : "?action=stop"));
+    makeRequest(get);
   }
 
   /**
@@ -266,7 +265,7 @@ public class MultiNodeTest {
    */
   public void forceCommit() throws IOException {
     log.info("Forcing commit");
-    HttpGet get = new HttpGet(solrHostPath + leader + "/update?commit=true");
+    HttpGet get = new HttpGet(solrHostPath + collectionName + "/update?commit=true");
     makeRequest(get);
   }
 
@@ -314,7 +313,7 @@ public class MultiNodeTest {
 
       // Select all docs to determine if the correct number of documents overall are found if not ignoring shard routing
       if (!ignoreShardRouting) {
-        get = new HttpGet(solrHostPath + leader + "/select?q=*:*&rows=0");
+        get = new HttpGet(solrHostPath + collectionName + "/select?q=*:*&rows=0");
         bodyString = makeRequest(get);
         body = mapper.readTree(bodyString);
 
@@ -402,8 +401,6 @@ public class MultiNodeTest {
    * and checking the doc count.
    */
   public void runTest() throws IOException {
-    forceCommit();
-    checkDocCount(0);
 
     Properties props = new Properties();
     props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaHostPath + kafkaPort);
@@ -414,10 +411,14 @@ public class MultiNodeTest {
     final long start = System.currentTimeMillis();
     if (!skipSeedKafka) {
       log.info("Sending {} documents to topic {}", docs.size(), topic);
+      int i = 0;
       try (Producer<String, SolrDocument> producer = new KafkaProducer<>(props)) {
         for (SolrDocument doc : docs) {
           ProducerRecord<String, SolrDocument> record = new ProducerRecord<>(topic, doc.get("id").toString(), doc);
           producer.send(record);
+          if (++i % 1000 == 0) {
+            log.info("Added {} docs to Kafka", i);
+          }
         }
       }
       log.info("Done sending documents, waiting until consumer lag is 0");
@@ -439,17 +440,18 @@ public class MultiNodeTest {
    * If it's not reached in 45 seconds, an execption is thrown.
    */
   public void waitForLag(int numDocs) throws IOException {
-    HttpGet get = new HttpGet(solrHostPath + leader + pluginEndpoint + "?action=status");
+    HttpGet get = new HttpGet(solrHostPath + collectionName + pluginEndpoint + "?action=status");
     int round = 0;
     int numStatic = 0;
+    int lastTotalOffset = numDocs;
     while (true) {
       try {
-        if (numStatic > 3) {
+        if (numStatic > 5) {
           throw new IllegalStateException("Waited " + numStatic +
               " rounds, but documents could not all be consumed from Kafka");
         }
-        log.info("Sleeping for 5 seconds on round {}", round++);
-        Thread.sleep(5000);
+        log.info("Sleeping for 15 seconds on round {}", round++);
+        Thread.sleep(15000);
       } catch (InterruptedException e) {
         log.info("Interrupted while sleeping");
         return;
@@ -482,9 +484,10 @@ public class MultiNodeTest {
           }
         }
         if (!finished) {
-          if (offsetSums == numDocs) {
+          if (offsetSums == lastTotalOffset) {
             numStatic++;
           }
+          lastTotalOffset = offsetSums;
           continue;
         }
 

@@ -21,20 +21,15 @@
      this file, see http://wiki.apache.org/solr/SolrConfigXml.
 -->
 <config>
-    <requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.handler.requesthandler.SolrKafkaRequestHandler"
-                    startup="lazy">
+    <requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.handler.requesthandler.SolrKafkaRequestHandler">
         <lst name="defaults">
             <str name="incomingDataType">solr</str>
-            <str name="consumerType">simple</str>
-            <str name="commitInterval">5000</str>
+            <str name="commitInterval">15000</str>
             <str name="ignoreShardRouting">false</str>
             <str name="kafkaBroker">kafka:9092</str>
-            <str name="topicName">testtopic</str>
+            <str name="topicNames">testtopic</str>
         </lst>
     </requestHandler>
-    <requestHandler name="/kafka/distrib"
-                    class="com.kmwllc.solr.solrkafka.handler.requesthandler.DistributedCommandHandler"
-                    startup="lazy" />
     <!-- In all configuration below, a prefix of "solr." for class names
          is an alias that causes solr to search appropriate packages,
          including org.apache.solr.(search|update|request|core|analysis)

@@ -170,6 +170,11 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       int i = 0;
       while (true) {
         try {
+          if (keeper == null) {
+            log.warn("Keeper not found, retrying in 1 second");
+            Thread.sleep(1000);
+            continue;
+          }
           Stat stat = keeper.exists(zkCollectionPath, false);
           keeper.setData(zkCollectionPath, state.getBytes(StandardCharsets.UTF_8),
               stat.getVersion());
@@ -316,19 +321,19 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
   }
 
   @Override
-  public synchronized void inform(SolrCore core) {
+  public void inform(SolrCore core) {
     try {
       log.info("New SolrCore provided");
 
       this.core = core;
       CloudDescriptor cloud = core.getCoreDescriptor().getCloudDescriptor();
 
-      if (cloud != null && !hasBeenSetup && cloud.getReplicaType() != Replica.Type.PULL) {
+      if (cloud != null && !hasBeenSetup) {
         zkCollectionPath = ZK_PLUGIN_PATH + "-" + cloud.getCollectionName();
         int i = 0;
         SolrZkClient client = core.getCoreContainer().getZkController().getZkClient();
         keeper = client.getSolrZooKeeper();
-        while (true) {
+        while (cloud.getReplicaType() != Replica.Type.PULL) {
           try {
             try {
               client.create(zkCollectionPath, "STOPPED".getBytes(StandardCharsets.UTF_8),
@@ -336,11 +341,10 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
               log.info("ZK plugin node created");
 
             } catch (KeeperException.NodeExistsException e) {
-              log.info("ZK plugin node not originally found but has been created externally, skipping creation");
+              log.info("ZK plugin node not originally found but has been created externally, skipping creation", e);
             }
-
-            core.getCoreContainer().getZkController().getZkClient().getSolrZooKeeper()
-                .addWatch(zkCollectionPath, this, AddWatchMode.PERSISTENT_RECURSIVE);
+            // TODO: if issues come up with re-establishing a watch during node-reconnect, check out apache curator
+            keeper.addWatch(zkCollectionPath, this, AddWatchMode.PERSISTENT_RECURSIVE);
             Stat stat = keeper.exists(zkCollectionPath, false);
             shouldRun = new String(keeper.getData(zkCollectionPath, false, stat), StandardCharsets.UTF_8)
                 .trim().equals("RUNNING");
@@ -360,38 +364,40 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       }
       hasBeenSetup = true;
 
-      // Stop the currently running importer
-      if (importer != null) {
-        log.info("Setting new core in importer");
-        importer.stop();
-      }
-
-      try {
-        // If we've been set up to run, start running
-        if (shouldRun && isCoreEligible()) {
-          startImporter();
-        } else if (!isCoreEligible()) {
-          log.info("Not starting importer because core is not eligible to start");
+      synchronized (this) {
+        // Stop the currently running importer
+        if (importer != null) {
+          log.info("Setting new core in importer");
+          importer.stop();
         }
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-      }
 
-      // Add hook to stop the importer when the core is shutting down
-      core.addCloseHook(new CloseHook() {
-        @Override
-        public void preClose(SolrCore core) {
-          log.info("SolrCore shutting down");
-          if (importer != null) {
-            importer.stop();
+        try {
+          // If we've been set up to run, start running
+          if (shouldRun && isCoreEligible()) {
+            startImporter();
+          } else if (!isCoreEligible()) {
+            log.info("Not starting importer because core is not eligible to start");
           }
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
         }
 
-        @Override
-        public void postClose(SolrCore core) {
-        }
-      });
-    } catch (Throwable e) {
+        // Add hook to stop the importer when the core is shutting down
+        core.addCloseHook(new CloseHook() {
+          @Override
+          public void preClose(SolrCore core) {
+            log.info("SolrCore shutting down");
+            if (importer != null) {
+              importer.stop();
+            }
+          }
+
+          @Override
+          public void postClose(SolrCore core) {
+          }
+        });
+      }
+    } catch(Throwable e){
       log.fatal("SolrKafkaRequestHandler could not be set up", e);
     }
   }

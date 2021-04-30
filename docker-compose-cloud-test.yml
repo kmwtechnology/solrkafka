@@ -23,7 +23,9 @@ services:
           memory: 3GB
 
   zookeeper:
-    image: zookeeper:3.5.8
+    image: zookeeper:3.6.2
+    environment:
+      ZOO_4LW_COMMANDS_WHITELIST: mntr,conf,ruok
     tmpfs:
       - /data
       - /datalog

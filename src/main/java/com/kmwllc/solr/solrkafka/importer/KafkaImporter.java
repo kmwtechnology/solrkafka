@@ -251,7 +251,9 @@ public class KafkaImporter implements Runnable {
   private Consumer<String, SolrDocument> createConsumer() {
     Properties props = new Properties();
     props.putIfAbsent(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBroker);
-    final String group = KAFKA_IMPORTER_GROUP + (ignoreShardRouting ? ":" + core.getName() : "");
+    final String group = String.format("%s:%s:%s", KAFKA_IMPORTER_GROUP,
+        core.getCoreDescriptor().getCloudDescriptor().getCollectionName(),
+        (ignoreShardRouting ? ":" + core.getName() : ""));
     props.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, group);
     props.putIfAbsent(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
     props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SerdeFactory.getDeserializer(dataType).getName());

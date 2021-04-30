@@ -63,7 +63,7 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
         <!-- The Kafka broker. Required. -->
         <str name="kafkaBroker">localhost:9092</str>
         <!-- The topic to consume from in the form of a comma separated list with no spaces. Required. -->
-        <str name="topicName">testtopic</str>
+        <str name="topicNames">testtopic</str>
         <!-- The max poll interval for Kafka. -->
         <str name="kafkaPollInterval">45000</str>
         <!-- Kafka consumer behavior when no previous offset is found. Acceptable values are "latest" or "beginning". -->
