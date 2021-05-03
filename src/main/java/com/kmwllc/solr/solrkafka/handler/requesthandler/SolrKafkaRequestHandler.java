@@ -44,20 +44,64 @@ import java.util.Optional;
  */
 public class SolrKafkaRequestHandler extends RequestHandlerBase
     implements SolrCoreAware, PluginInfoInitialized, PermissionNameProvider, Watcher {
+
+  /** Logger. */
   private static final Logger log = LogManager.getLogger(SolrKafkaRequestHandler.class);
+
+  /** The default Zookeeper path name, used in the {@link this#zkCollectionPath}. */
   public static final String ZK_PLUGIN_PATH = "/solrkafka";
-  public String zkCollectionPath = "";
+
+  /** The path of this importer in Zookeeper. This should be set when {@link this#inform(SolrCore)} is called. */
+  private String zkCollectionPath = "";
+
+  /** The current {@link SolrCore} being used. */
   private SolrCore core;
+
+  /** The {@link KafkaImporter} currently running (or last run). */
   private KafkaImporter importer;
+
+  /**
+   * The incoming datatype from the Kafka topic. Corresponds to the
+   * {@link org.apache.kafka.common.serialization.Deserializer} that will be returned from the
+   * {@link com.kmwllc.solr.solrkafka.datatype.SerdeFactory}. Default is "solr" (for
+   * {@link com.kmwllc.solr.solrkafka.datatype.solr.SolrDocumentDeserializer}).
+   */
   private String incomingDataType = "solr";
+
+  /** The minimum time between offset commits in ms back to Kafka. Default is 5000. */
   private long commitInterval = 5000;
+
+  /**
+   * Whether or not this should be running. Can be in an inconsistent state when the {@link SolrCore} is shutting
+   * down or if there's an error.
+   */
   private volatile boolean shouldRun = false;
+
+  /** True if all shard routing should be performed. */
   private boolean ignoreShardRouting = false;
+
+  /** The topics that the {@link KafkaImporter} should pull from. */
   private List<String> topicNames = null;
+
+  /** The Kafka broker connection URL. */
   private String kafkaBroker = null;
+
+  /** The {@link ZooKeeper} that should be used for making updates to the state of teh {@link KafkaImporter}. */
   private volatile ZooKeeper keeper;
-  private volatile boolean hasBeenSetup = false;
+
+  /** True if the Zookeeper state has already been set up and should not be run again. */
+  private boolean hasBeenSetup = false;
+
+  /**
+   * The max poll interval in ms before the Kafka consumer should be purged. Should be larger than the
+   * {@link this#commitInterval} Default is 45000.
+   */
   private int kafkaPollInterval = 45000;
+
+  /**
+   * True if the Kafka consumer should start polling from the earliest offset where no existing offsets are found.
+   * False if it should start from the latest offset.
+   */
   private boolean autoOffsetResetBeginning = true;
 
   public SolrKafkaRequestHandler() {
@@ -74,11 +118,16 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
    */
   @Override
   public void handleRequestBody(SolrQueryRequest req, SolrQueryResponse rsp) {
+    // Returns the name of the current core in the response
     rsp.add("current_core", core.getName());
 
+    // Adds the status of the importer in the response
     rsp.add("status",
         importer == null ? "NOT_INITIALIZED" :
             importer.isRunning() ? "RUNNING" : "STOPPED");
+
+    // Adds the consumer group lag for every partition in the topic, as well as the total lag, max lag, and most
+    // behind partition
     Map<String, Long> consumerGroupLag = KafkaImporter.getConsumerGroupLag(kafkaBroker, topicNames);
     rsp.add("consumer_group_lag", consumerGroupLag);
     rsp.add("total_lag", consumerGroupLag.values().stream().mapToLong(l -> l).sum());
@@ -91,7 +140,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
 
     rsp.add("shouldRun", shouldRun);
 
-    // Determines if this is the current leader and adds that information to the response
+    // Determines if this is the current leader/the core is eligible to run and adds that information to the response
     try {
       boolean isLeader = isCoreLeader(core);
       rsp.add("leader", isLeader);
@@ -109,7 +158,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       return;
     }
 
-    // Gets the desired action, or uses "start" if none is supplied
+    // Gets the desired action, or uses "start"/"status" if none is supplied
     Object actionObj = req.getParams().get("action");
     String action;
     if (actionObj == null) {
@@ -120,6 +169,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
 
     // If the start action is supplied, setup and maybe start the importer
     if (action.equalsIgnoreCase("start")) {
+      // Returns an exception if the cluster is in an invalid state for the importer to start
       if ((core.getCoreDescriptor().getCloudDescriptor() == null || clusterContainsTlogs()) && ignoreShardRouting) {
         String msg = "Ignore shard routing set to true, but cluster is not running in cloud mode or a replica type is TLOG";
         rsp.add("message", msg + ". Run in cloud mode to use this feature or change replica type.");
@@ -138,73 +188,77 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
         return;
       }
 
-      changeRunningState(true);
-
-      rsp.add("status", "started");
-      rsp.add("running", true);
+      // Starts the importer
+      if (changeRunningState(true)) {
+        rsp.add("message", "started");
+        rsp.add("running", true);
+      } else {
+        rsp.add("message", "Could not start, check logs for info");
+        rsp.setException(new IllegalStateException("Failed to start Zookeeper"));
+      }
       return;
-    }
-
-    // Exits if the importer is not running. All commands below require a running importer if leader.
-    if (importer == null || !importer.isRunning()) {
-      rsp.add("status", "SolrKafka not running");
-      rsp.add("running", false);
     }
 
     // Handle the provided action
     if (action.equalsIgnoreCase("stop")) {
-      changeRunningState(false);
-      rsp.add("status", "Stopping SolrKafka");
-      rsp.add("running", false);
+      if (changeRunningState(false)) {
+        rsp.add("message", "stopping");
+        rsp.add("running", false);
+      } else {
+        rsp.add("message", "Failed to stop, check logs for info");
+        rsp.setException(new IllegalStateException("Failed to stop Zookeeper"));
+      }
     } else if (!action.equalsIgnoreCase("status")) {
-      rsp.add("status", "Unknown command provided");
-      rsp.add("running", importer != null && importer.isRunning());
+      rsp.add("message", "Unknown command provided");
     }
   }
 
-  private void changeRunningState(boolean start) {
-    shouldRun = start;
+  /**
+   * Changes the state of the plugin depending on the value of the {@code start} param. If the cluster is running
+   * in cloud mode, functionality is performed through Zookeeper and handled in the {@link Watcher#process(WatchedEvent)}
+   * method. If the cluster is not in cloud mode, the {@link this#importer} is simply started or stopped.
+   *
+   * @param start True if the importer should be started, false if it should be stopped
+   * @return True if the action was a success, false otherwise
+   */
+  private boolean changeRunningState(boolean start) {
     final String state = start ? "RUNNING" : "STOPPED";
+
     if (core.getCoreDescriptor().getCloudDescriptor() != null) {
+      // We're running in cloud mode, contact Zookeeper
       log.info("Changing running state to {} in cloud mode", state);
-      int i = 0;
-      while (true) {
+      // Try up to 10 times to change Zookeeper state, otherwise just give up
+      for (int i = 0; i < 10; i++) {
+        // Get ZNode status info and try to update node state value
         try {
-          if (keeper == null) {
-            log.warn("Keeper not found, retrying in 1 second");
-            Thread.sleep(1000);
-            continue;
-          }
           Stat stat = keeper.exists(zkCollectionPath, false);
           keeper.setData(zkCollectionPath, state.getBytes(StandardCharsets.UTF_8),
               stat.getVersion());
-          break;
+          return true;
         } catch (InterruptedException e) {
-          log.error("Interrupted", e);
-          return;
+          log.error("Interrupted, retrying", e);
         } catch (KeeperException e) {
           log.error("ZK error encountered, trying set again", e);
-        }
-        if (i++ > 10) {
-          log.info("Failed to change state after 10 attempts");
-          return;
         }
         try {
           Thread.sleep(1);
         } catch (InterruptedException e) {
           log.error("Interrupted", e);
-          return;
         }
       }
-      return;
+      log.info("Failed to change state after 10 attempts");
+      return false;
     }
 
+    // We're not running in cloud mode, simply change state
+    shouldRun = start;
     log.info("Changing running state to {} in normal (non-cloud) mode", state);
     if (start) {
       startImporter();
     } else {
       importer.stop();
     }
+    return true;
   }
 
   /**
@@ -286,6 +340,13 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     }
   }
 
+  /**
+   * Returns true if the core is eligible to run. This occurs when the node is a leader, is an
+   * NRT type, or if the cluster is not running in cloud mode.
+   *
+   * @return True if the plugin should run on the core
+   * @throws InterruptedException if {@link this#isCoreLeader(SolrCore)} throws
+   */
   public boolean isCoreEligible() throws InterruptedException {
     CloudDescriptor cloud = core.getCoreDescriptor().getCloudDescriptor();
     if (cloud == null || !ignoreShardRouting || cloud.getReplicaType() == Replica.Type.NRT) {
@@ -295,6 +356,11 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     return isCoreLeader(core);
   }
 
+  /**
+   * Determines if the cluster currently contains TLOGs.
+   *
+   * @return True if any replicas in the cluster are TLOGs
+   */
   public boolean clusterContainsTlogs() {
     CloudDescriptor cloud = core.getCoreDescriptor().getCloudDescriptor();
     if (cloud == null) {
@@ -329,26 +395,37 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       CloudDescriptor cloud = core.getCoreDescriptor().getCloudDescriptor();
 
       if (cloud != null && !hasBeenSetup) {
+        // We're running in cloud mode and haven't set up Zookeeper yet
         zkCollectionPath = ZK_PLUGIN_PATH + "-" + cloud.getCollectionName();
-        int i = 0;
         SolrZkClient client = core.getCoreContainer().getZkController().getZkClient();
         keeper = client.getSolrZooKeeper();
+
+        int i = 0;
+        // If we're a PULL replica, don't run this since we don't need to watch anything and a leader replica will
+        // set it up for us
         while (cloud.getReplicaType() != Replica.Type.PULL) {
           try {
             try {
+              // Try to set status to stopped
               client.create(zkCollectionPath, "STOPPED".getBytes(StandardCharsets.UTF_8),
                   CreateMode.PERSISTENT, true);
               log.info("ZK plugin node created");
-
             } catch (KeeperException.NodeExistsException e) {
+              // The node already existed, don't care about the node's value yet...
               log.info("ZK plugin node not originally found but has been created externally, skipping creation", e);
             }
+
             // TODO: if issues come up with re-establishing a watch during node-reconnect, check out apache curator
+            // Add myself as a watcher to the node at zkCollectionPath (we know it exists because we made it through
+            // the previous try block
             keeper.addWatch(zkCollectionPath, this, AddWatchMode.PERSISTENT_RECURSIVE);
             Stat stat = keeper.exists(zkCollectionPath, false);
+
+            // If the value of the block is currently "RUNNING", then we should start running
             shouldRun = new String(keeper.getData(zkCollectionPath, false, stat), StandardCharsets.UTF_8)
                 .trim().equals("RUNNING");
             log.info("Created {}/{} node and watcher, shouldRun = {}", zkCollectionPath, core.getName(), shouldRun);
+            // We're finished setting up so break out of the loop
             break;
           } catch (InterruptedException e) {
             log.error("Interrupted while setting up cloud mode", e);
@@ -356,14 +433,19 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
           } catch (KeeperException e) {
             log.error("Error occurred while setting up Zookeeper state", e);
           }
+          // Tried 10 times to start up, but couldn't
           if (++i > 10) {
+            // TODO: should this throw a SolrException?
             log.error("Could not initialize ZK client");
             return;
           }
         }
       }
+      // Set this so we don't try to set up again
       hasBeenSetup = true;
 
+      // Probably won't be run concurrently, but still want to make sure we don't lose a reference to a
+      // (possibly) running KafkaImporter
       synchronized (this) {
         // Stop the currently running importer
         if (importer != null) {
@@ -405,11 +487,14 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
   @Override
   public void process(WatchedEvent event) {
     log.info("ZK watcher callback event received in core {}", core.getName());
+    // If the event isn't at the expected zkCollectionPath node or it's not a data changed event, then ignore
     if (!event.getPath().equals(zkCollectionPath) || event.getType() != Event.EventType.NodeDataChanged) {
       return;
     }
 
+    // get the data at the node and determine what to do in callback
     keeper.getData(zkCollectionPath, false, (rc, path, ctx, data, stat) -> {
+      // If status isn't OK, log error and stop importer
       if (rc != KeeperException.Code.OK.intValue()) {
         log.error("Non-OK code received in ZK callback for core {}: {}, stopping importer", core.getName(), rc);
         if (importer != null && !importer.isRunning()) {
@@ -418,15 +503,20 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
         return;
       }
 
+      // Get data from node
       String text = new String(data, StandardCharsets.UTF_8).trim();
 
+      // If data isn't RUNNING or STOPPED, log error and do nothing
       if (!(text.equalsIgnoreCase("RUNNING") || text.equalsIgnoreCase("STOPPED"))) {
-        log.info("Unknown status received from Zookeeper");
+        log.warn("Unknown status received from Zookeeper");
         return;
       }
 
+      // Determine if we should run or not
       shouldRun = text.equalsIgnoreCase("RUNNING");
 
+      // If we're not eligible to run, don't run (this shouldn't happen since we're not supporting TLOGs and don't
+      // run on PULLs)
       try {
         if (!isCoreEligible()) {
           log.info("Received process event from ZK but core is not eligible to start");
@@ -437,6 +527,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       }
 
 
+      // Start or stop importer
       if ((importer == null || !importer.isRunning()) && shouldRun) {
         log.info("Starting importer from ZK watch callback for core {}", core.getName());
         startImporter();
