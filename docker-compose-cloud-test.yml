@@ -1,6 +1,6 @@
 version: "3.9"
 services:
-  solr:
+  solr-8983:
     image: kmw:solrkafka-test
     build:
       dockerfile: Dockerfile-test
@@ -18,9 +18,31 @@ services:
     deploy:
       resources:
         limits:
-          memory: 3GB
+          memory: 2GB
         reservations:
-          memory: 3GB
+          memory: 2GB
+
+  solr-7574:
+    image: kmw:solrkafka-test
+    build:
+      dockerfile: Dockerfile-test
+      context: .
+    environment:
+      ZK_HOST: zookeeper:2181
+      SOLR_JAVA_MEM: "-Xms1g -Xmx1g"
+    depends_on:
+      - zookeeper
+      - kafka
+    ports:
+      - "7574:8983"
+    networks:
+      - solrkafka
+    deploy:
+      resources:
+        limits:
+          memory: 2GB
+        reservations:
+          memory: 2GB
 
   zookeeper:
     image: zookeeper:3.6.2

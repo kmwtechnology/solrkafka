@@ -27,29 +27,32 @@ import java.util.Properties;
 /**
  * Runs tests outside of cloud mode. Expects the node to be set up prior to running the test.
  */
-public class SingleNodeTest {
+public class SingleNodeTest implements AutoCloseable {
   private static final Logger log = LogManager.getLogger(SingleNodeTest.class);
   private static final ObjectMapper mapper = new ObjectMapper();
-  private final CloseableHttpClient client = HttpClients.createDefault();
+  private final SolrManager manager;
   private static final String topic = "testtopic";
-  private final static String solrHostPath = "http://localhost";
+  private final static String solrHostPath = "http://localhost:8983/solr/";
   private final String kafkaHostPath;
-  private static final String solrPath = ":8983/solr/singleNodeTest";
+  private static final String solrPath = "singleNodeTest";
   private static final String pluginEndpoint = "/kafka";
   private static final String kafkaPort = ":9092";
   private final TestDocumentCreator docs;
   private static final int NUM_DOCS = 15_000;
+  private static final int DOC_SIZE = 10_000;
 
   /**
    * @param docsPath The path to a JSON file of solr documents to test with, or null if docs should be randomly created
    * @param docker Whether or not this test is being run in docker (uses different URLs for services)
    */
   public SingleNodeTest(Path docsPath, boolean docker) throws IOException {
+    manager = new SolrManager(solrHostPath, solrPath, null, mapper);
+
     log.info("Loading test documents");
     if (docsPath != null) {
       docs = new TestDocumentCreator(mapper.readValue(docsPath.toFile(), new TypeReference<List<SolrDocument>>() {}));
     } else {
-      docs = new TestDocumentCreator(NUM_DOCS, 10_000);
+      docs = new TestDocumentCreator(NUM_DOCS, DOC_SIZE);
     }
 
     this.kafkaHostPath = docker ? "kafka" : "localhost";
@@ -71,52 +74,17 @@ public class SingleNodeTest {
       }
     }
 
-    SingleNodeTest test = new SingleNodeTest(docsPath, docker);
-    test.manageImporter(true);
-    try {
+    try (SingleNodeTest test = new SingleNodeTest(docsPath, docker)) {
+      test.manager.manageImporter(true);
       test.runTest();
-    } finally {
-      test.manageImporter(false);
+    } catch (Throwable e) {
+      log.error("Error occurred while running test", e);
     }
   }
 
-  /**
-   * Make a request and throw an exception if any status codes other than the {@code expectedStatuses} are returned.
-   *
-   * @param req The request to make
-   * @return The body of the request
-   */
-  public String makeRequest(HttpUriRequest req) throws IOException {
-    try (CloseableHttpResponse res = client.execute(req);
-         BufferedInputStream entity = new BufferedInputStream(res.getEntity().getContent())) {
-      String val = new String(entity.readAllBytes());
-      log.info(val);
-      if (res.getStatusLine().getStatusCode() < 200 || res.getStatusLine().getStatusCode() >= 300) {
-        throw new IllegalStateException("Non-200 status code received");
-      }
-      return val;
-    }
-  }
-
-  /**
-   * Manages the importer by starting or stopping it.
-   *
-   * @param start {@code true} if the importer should be started, {@link false} if it should be stopped
-   */
-  public void manageImporter(boolean start) throws IOException {
-    log.info("{} SolrKafka importer", start ? "starting" : "stopping");
-    HttpGet get = new HttpGet(solrHostPath + solrPath + pluginEndpoint + (start ? "" : "?action=stop"));
-    String bodyString = makeRequest(get);
-    log.info("Response received: {}", bodyString);
-  }
-
-  /**
-   * Forces the index to commit changes immediately.
-   */
-  public void forceCommit() throws IOException {
-    log.info("Forcing commit");
-    HttpGet get = new HttpGet(solrHostPath + solrPath + "/update?commit=true");
-    makeRequest(get);
+  @Override
+  public void close() throws IOException {
+    manager.close();
   }
 
   /**
@@ -126,7 +94,7 @@ public class SingleNodeTest {
    */
   private void checkDocCount(int numRecords) throws IOException {
     HttpGet get = new HttpGet(solrHostPath + solrPath + "/select?q=*:*&rows=0");
-    String bodyString = makeRequest(get);
+    String bodyString = manager.makeRequest(get);
     JsonNode body = mapper.readTree(bodyString);
 
     if (!body.has("response") || !body.get("response").has("numFound")) {
@@ -145,7 +113,7 @@ public class SingleNodeTest {
    * and checking the doc count.
    */
   public void runTest() throws IOException {
-    forceCommit();
+    manager.forceCommit();
     checkDocCount(0);
 
     Properties props = new Properties();
@@ -165,7 +133,7 @@ public class SingleNodeTest {
     log.info("Done sending documents, waiting until consumer lag is 0");
     waitForLag(docs.size());
     final double duration = (System.currentTimeMillis() - start) / 1000.0;
-    forceCommit();
+    manager.forceCommit();
     checkDocCount(docs.size());
 
     log.info("Duration for {} docs was {} seconds, {} docs / second", docs.size(), duration,
@@ -193,7 +161,7 @@ public class SingleNodeTest {
         return;
       }
 
-      String bodyString = makeRequest(get);
+      String bodyString = manager.makeRequest(get);
       JsonNode body = mapper.readTree(bodyString);
 
       if (body.has("status") && body.get("status").textValue().equals("STOPPED")) {

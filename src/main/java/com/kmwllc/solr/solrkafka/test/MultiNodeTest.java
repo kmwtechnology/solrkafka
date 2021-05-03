@@ -42,41 +42,30 @@ import java.util.concurrent.TimeoutException;
 /**
  * Runs tests in cloud mode. Sets up the nodes automatically.
  */
-public class MultiNodeTest {
+public class MultiNodeTest implements AutoCloseable {
   private static final Logger log = LogManager.getLogger(MultiNodeTest.class);
   private static final ObjectMapper mapper = new ObjectMapper();
-  private final CloseableHttpClient client = HttpClients.createDefault();
   private static final String topic = "testtopic";
   private final static String solrHostPath = "http://localhost:8983/solr/";
   private final String kafkaHostPath;
   private final String collectionName;
-  private static final String pluginEndpoint = "/kafka";
   private static final String kafkaPort = ":9092";
   private final TestDocumentCreator docs;
-  private final Path configPath;
   private final boolean ignoreShardRouting;
-  private final String tlogs;
-  private final String pulls;
-  private final String nrts;
-  private final String shards;
   private final boolean skipSeedKafka;
   private static final int NUM_DOCS = 15_000;
+  private final SolrManager manager;
 
   /**
    * @param collectionName The name of the collection to (try to) create and test
    * @param docsPath The path to a JSON file of solr documents to test with, or null if docs should be randomly created
    * @param docker Whether or not this test is being run in docker (uses different URLs for services)
-   * @param configPath The path to the solrconfig.xml file to use in the collection within the Solr container,
-   *                   or null if a premade solrconfig.xml should be used
    * @param ignoreShardRouting Whether or not shard routing should be ignored in this test
-   * @param nrts The number of NRT replicas to create
-   * @param tlogs The numer of TLOG replicas to create
-   * @param pulls The number of PULL replicas to create
-   * @param shards The number of shards to create
    * @param skipSeedKafka Should be {@code true} if this test has already been run once on an active cluster (avoids re-seeding Kafka)
    */
-  public MultiNodeTest(String collectionName, Path docsPath, boolean docker, Path configPath, boolean ignoreShardRouting,
-                       String nrts, String tlogs, String pulls, String shards, boolean skipSeedKafka) throws IOException {
+  public MultiNodeTest(String collectionName, Path docsPath, boolean docker, boolean ignoreShardRouting,
+                       boolean skipSeedKafka, Path solrBinDir) throws IOException {
+    manager = new SolrManager(solrHostPath, collectionName, solrBinDir, mapper);
     log.info("Loading test documents");
     if (docsPath != null) {
       docs = new TestDocumentCreator(mapper.readValue(docsPath.toFile(), new TypeReference<List<SolrDocument>>() {}));
@@ -84,19 +73,8 @@ public class MultiNodeTest {
       docs = new TestDocumentCreator(NUM_DOCS, 10_000);
     }
 
-    this.shards = shards;
-    this.nrts = nrts;
     this.collectionName = collectionName;
     this.kafkaHostPath = docker ? "kafka" : "localhost";
-    this.tlogs = tlogs;
-    if (configPath == null) {
-      this.configPath = ignoreShardRouting
-          ? Path.of("/opt/solr/server/solr/configsets/testconfig/conf/solrconfig-routing.xml")
-          : Path.of("/opt/solr/server/solr/configsets/testconfig/conf/solrconfig.xml");
-    } else {
-      this.configPath = configPath;
-    }
-    this.pulls = pulls;
     this.ignoreShardRouting = ignoreShardRouting;
     this.skipSeedKafka = skipSeedKafka;
   }
@@ -111,6 +89,7 @@ public class MultiNodeTest {
     String nrts = "2";
     String shards = "2";
     Path configPath = null;
+    Path solrBinDir = null;
     boolean ignoreShardRouting = false;
 
     for (int i = 0; i < args.length; i++) {
@@ -143,130 +122,36 @@ public class MultiNodeTest {
         skipSeedKafka = true;
       } else if (args[i].equals("-i")) {
         ignoreShardRouting = true;
+      } else if (args[i].equals("--solr-bin-dir") && args.length > i + 1) {
+        solrBinDir = Path.of(args[++i]);
       } else {
         log.fatal("Unknown param passed, usage: [-d] [-p DOCS_PATH] [-c CONFIG_PATH] [--cname COLLECTION_NAME] [-k]" +
-            "[--pulls NUM_PULL_REPLICAS] [--tlogs NUM_TLOG_REPLICAS] [--nrts|-r NUM_NRT_REPLICAS] [-s NUM_SHARDS] [-i]");
+            "[--pulls NUM_PULL_REPLICAS] [--tlogs NUM_TLOG_REPLICAS] [--nrts|-r NUM_NRT_REPLICAS] [-s NUM_SHARDS] [-i] [--kill-node]");
         System.exit(1);
       }
     }
 
-    MultiNodeTest test = new MultiNodeTest(collectionName, docsPath, docker, configPath, ignoreShardRouting,
-        nrts, tlogs, pulls, shards, skipSeedKafka);
-    test.uploadConfig();
-    try {
-      test.forceCommit();
+    if (configPath == null) {
+      configPath = ignoreShardRouting
+          ? Path.of("/opt/solr/server/solr/configsets/testconfig/conf/solrconfig-routing.xml")
+          : Path.of("/opt/solr/server/solr/configsets/testconfig/conf/solrconfig.xml");
+    }
+
+    try (MultiNodeTest test = new MultiNodeTest(collectionName, docsPath, docker, ignoreShardRouting,
+        skipSeedKafka, solrBinDir)) {
+      test.manager.uploadConfigAndCreateCollection(shards, nrts, pulls, tlogs, configPath);
+      test.manager.forceCommit();
       test.checkDocCount(0);
-      test.manageImporter(true);
+      test.manager.manageImporter(true);
       test.runTest();
     } catch (Throwable e) {
       log.error("Exception occurred while setting up/checking initial state", e);
-    } finally {
-      test.manageImporter(false);
     }
   }
 
-  /**
-   * Uploads the provided solrconfig.xml at the container path and creates the collection with the provided parameters.
-   */
-  public void uploadConfig() throws IOException, KeeperException, URISyntaxException {
-    // Tries to get ZK_HOST as an environment variable
-    String zkAddr = System.getenv("ZK_HOST");
-    Path temp = null;
-
-    // Connects to Zookeeper using ZK_HOST or localhost
-    try (SolrZkClient client = new SolrZkClient(zkAddr == null ? "localhost:2181" : zkAddr, 30000)) {
-      // Determine if the configuration is already present, and if not, copies the _default to solrkafka and replaces the solrconfig.xml
-      if (!client.exists("/configs/solrkafka", false)) {
-        temp = Files.createTempDirectory("solrkafka-test");
-        client.downConfig("_default", temp);
-        client.upConfig(temp, "solrkafka");
-      }
-      byte[] data = Files.readAllBytes(configPath);
-      client.setData("/configs/solrkafka/solrconfig.xml", data, true);
-    } catch (InterruptedException e) {
-      throw new IOException(e);
-    } finally {
-      // Cleans up the temp directory if it was used
-      if (temp != null) {
-        FileUtils.forceDelete(temp.toFile());
-      }
-    }
-
-    // Creates the collection with the provided parameters
-    URIBuilder bldr = new URIBuilder(solrHostPath + "admin/collections")
-        .setParameter("action", "CREATE").addParameter("numShards", shards)
-        .addParameter("router.name", "compositeId").addParameter("nrtReplicas", nrts)
-        .addParameter("tlogReplicas", tlogs).addParameter("pullReplicas", pulls)
-        .addParameter("maxShardsPerNode", "-1").addParameter("name", collectionName)
-        .addParameter("collection.configName", "solrkafka");
-    // Makes the request, but doesn't throw an exception if a 400 is returned (signifies the collection already exists)
-    makeRequest(new HttpGet(bldr.build()));
-  }
-
-  /**
-   * Make a request and throw an exception if any status code other than 200 is returned.
-   *
-   * @param req The request to make
-   * @return The body of the request
-   */
-  public String makeRequest(HttpUriRequest req) throws IOException {
-    return makeRequest(req, 200);
-  }
-
-  /**
-   * Make a request and throw an exception if any status codes other than the {@code expectedStatuses} are returned.
-   *
-   * @param req The request to make
-   * @param expectedStatuses Status codes that can be returned and not throw an exception for
-   * @return The body of the request
-   */
-  public String makeRequest(HttpUriRequest req, Integer... expectedStatuses) throws IOException {
-    log.info("Sending request to: {}", req.getURI());
-    CompletableFuture<CloseableHttpResponse> thread = CompletableFuture.supplyAsync(() -> {
-      try {
-        return client.execute(req);
-      } catch (IOException e) {
-        throw new UncheckedIOException(e);
-      }
-    });
-    try (CloseableHttpResponse res = thread.get(30000, TimeUnit.MILLISECONDS);
-         BufferedInputStream entity = new BufferedInputStream(res.getEntity().getContent())) {
-      if (!Arrays.asList(expectedStatuses).contains(res.getStatusLine().getStatusCode())) {
-        log.error("Invalid response received: {}", new String(entity.readAllBytes()));
-        throw new IllegalStateException("Unexpected status code received: " + res.getStatusLine().getStatusCode());
-      }
-      String body = new String(entity.readAllBytes());
-      log.info("Received response: {}", body);
-      return body;
-    } catch (TimeoutException | InterruptedException e) {
-      log.error("Concurrent exception while executing request", e);
-      throw new IllegalStateException(e);
-    } catch (ExecutionException e) {
-      if (e.getCause() instanceof UncheckedIOException) {
-        throw new IOException(e);
-      }
-      throw new IllegalStateException(e);
-    }
-  }
-
-  /**
-   * Manages the importer by starting or stopping it.
-   *
-   * @param start {@code true} if the importer should be started, {@link false} if it should be stopped
-   */
-  public void manageImporter(boolean start) throws IOException {
-    log.info("{} SolrKafka importer", start ? "starting" : "stopping");
-    HttpGet get = new HttpGet(solrHostPath + collectionName + pluginEndpoint + (start ? "" : "?action=stop"));
-    makeRequest(get);
-  }
-
-  /**
-   * Send a request to the leader node to force a commit.
-   */
-  public void forceCommit() throws IOException {
-    log.info("Forcing commit");
-    HttpGet get = new HttpGet(solrHostPath + collectionName + "/update?commit=true");
-    makeRequest(get);
+  @Override
+  public void close() throws IOException {
+    manager.close();
   }
 
   /**
@@ -285,7 +170,7 @@ public class MultiNodeTest {
     }
 
     HttpGet get = new HttpGet(solrHostPath + "admin/collections?action=CLUSTERSTATUS&collection=" + collectionName);
-    String bodyString = makeRequest(get);
+    String bodyString = manager.makeRequest(get);
     JsonNode body = mapper.readTree(bodyString);
 
     List<String> errors = new ArrayList<>();
@@ -314,7 +199,7 @@ public class MultiNodeTest {
       // Select all docs to determine if the correct number of documents overall are found if not ignoring shard routing
       if (!ignoreShardRouting) {
         get = new HttpGet(solrHostPath + collectionName + "/select?q=*:*&rows=0");
-        bodyString = makeRequest(get);
+        bodyString = manager.makeRequest(get);
         body = mapper.readTree(bodyString);
 
         if (!body.has("response") || !body.get("response").has("numFound")) {
@@ -331,7 +216,7 @@ public class MultiNodeTest {
 
       // Get the status of each core to determine if it contains the correct number of documents
       get = new HttpGet(solrHostPath + "admin/cores?action=STATUS");
-      bodyString = makeRequest(get);
+      bodyString = manager.makeRequest(get);
       body = mapper.readTree(bodyString);
 
       if (!body.has("status") || !body.get("status").isObject() || body.get("status").size() == 0) {
@@ -426,74 +311,13 @@ public class MultiNodeTest {
       log.info("Skip seed Kafka");
     }
 
-    waitForLag(docs.size());
+    manager.waitForLag(docs.size());
     final double duration = (System.currentTimeMillis() - start) / 1000.0;
-    forceCommit();
+    manager.forceCommit();
     checkDocCount(docs.size());
     log.info("Duration for {} docs was {} seconds, {} docs / second", docs.size(), duration,
         docs.size() / duration);
     log.info("Test passed");
   }
 
-  /**
-   * Waits for the consumer group lag to be 0 for each Kafka partition or the importer to stop.
-   * If it's not reached in 45 seconds, an execption is thrown.
-   */
-  public void waitForLag(int numDocs) throws IOException {
-    HttpGet get = new HttpGet(solrHostPath + collectionName + pluginEndpoint + "?action=status");
-    int round = 0;
-    int numStatic = 0;
-    int lastTotalOffset = numDocs;
-    while (true) {
-      try {
-        if (numStatic > 5) {
-          throw new IllegalStateException("Waited " + numStatic +
-              " rounds, but documents could not all be consumed from Kafka");
-        }
-        log.info("Sleeping for 15 seconds on round {}", round++);
-        Thread.sleep(15000);
-      } catch (InterruptedException e) {
-        log.info("Interrupted while sleeping");
-        return;
-      }
-
-      String bodyString = makeRequest(get);
-      JsonNode body = mapper.readTree(bodyString);
-
-      // If the importer is stopped, return
-      if (body.has("status") && body.get("status").textValue().equals("STOPPED")) {
-        log.info("Status is stopped, checking core state");
-        return;
-      }
-
-      // Check consumer_group_lag
-      if (body.has("consumer_group_lag") && body.get("consumer_group_lag").isObject()) {
-        JsonNode lag = body.get("consumer_group_lag");
-        boolean finished = true;
-        // If there are no entries, try again
-        if (lag.size() == 0) {
-          continue;
-        }
-
-        int offsetSums = 0;
-        // Check each partition, if the partition's lag is > 0, retry
-        for (JsonNode partition : lag) {
-          if (partition.asLong() > 0) {
-            offsetSums += partition.asLong();
-            finished = false;
-          }
-        }
-        if (!finished) {
-          if (offsetSums == lastTotalOffset) {
-            numStatic++;
-          }
-          lastTotalOffset = offsetSums;
-          continue;
-        }
-
-        // We've caught up, so return
-        return;
-      }
-    }
-  }
 }
