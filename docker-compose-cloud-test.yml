@@ -5,6 +5,8 @@ services:
     build:
       dockerfile: Dockerfile-test
       context: .
+    entrypoint: "/usr/local/openjdk-11/bin/java"
+    command: ["-cp", "/var/solr/data/lib/solrkafka-0.0.1-SNAPSHOT.jar", "com.kmwllc.solr.solrkafka.test.SolrManager"]
     environment:
       ZK_HOST: zookeeper:2181
       SOLR_JAVA_MEM: "-Xms1g -Xmx1g"
@@ -18,9 +20,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2GB
+          memory: 3GB
         reservations:
-          memory: 2GB
+          memory: 3GB
 
   solr-7574:
     image: kmw:solrkafka-test

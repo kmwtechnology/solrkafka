@@ -64,8 +64,8 @@ public class MultiNodeTest implements AutoCloseable {
    * @param skipSeedKafka Should be {@code true} if this test has already been run once on an active cluster (avoids re-seeding Kafka)
    */
   public MultiNodeTest(String collectionName, Path docsPath, boolean docker, boolean ignoreShardRouting,
-                       boolean skipSeedKafka, Path solrBinDir) throws IOException {
-    manager = new SolrManager(solrHostPath, collectionName, solrBinDir, mapper);
+                       boolean skipSeedKafka) throws IOException {
+    manager = new SolrManager(collectionName, mapper);
     log.info("Loading test documents");
     if (docsPath != null) {
       docs = new TestDocumentCreator(mapper.readValue(docsPath.toFile(), new TypeReference<List<SolrDocument>>() {}));
@@ -89,7 +89,6 @@ public class MultiNodeTest implements AutoCloseable {
     String nrts = "2";
     String shards = "2";
     Path configPath = null;
-    Path solrBinDir = null;
     boolean ignoreShardRouting = false;
 
     for (int i = 0; i < args.length; i++) {
@@ -121,9 +120,8 @@ public class MultiNodeTest implements AutoCloseable {
         // If provided, kafka will not be seeded with randomized docs or anything provided with -p
         skipSeedKafka = true;
       } else if (args[i].equals("-i")) {
+        // Tests all shard routing functionality
         ignoreShardRouting = true;
-      } else if (args[i].equals("--solr-bin-dir") && args.length > i + 1) {
-        solrBinDir = Path.of(args[++i]);
       } else {
         log.fatal("Unknown param passed, usage: [-d] [-p DOCS_PATH] [-c CONFIG_PATH] [--cname COLLECTION_NAME] [-k]" +
             "[--pulls NUM_PULL_REPLICAS] [--tlogs NUM_TLOG_REPLICAS] [--nrts|-r NUM_NRT_REPLICAS] [-s NUM_SHARDS] [-i] [--kill-node]");
@@ -138,10 +136,10 @@ public class MultiNodeTest implements AutoCloseable {
     }
 
     try (MultiNodeTest test = new MultiNodeTest(collectionName, docsPath, docker, ignoreShardRouting,
-        skipSeedKafka, solrBinDir)) {
+        skipSeedKafka)) {
       test.manager.uploadConfigAndCreateCollection(shards, nrts, pulls, tlogs, configPath);
       test.manager.forceCommit();
-      test.checkDocCount(0);
+      MultiNodeTest.checkDocCount(0, test.manager, collectionName, ignoreShardRouting);
       test.manager.manageImporter(true);
       test.runTest();
     } catch (Throwable e) {
@@ -159,7 +157,8 @@ public class MultiNodeTest implements AutoCloseable {
    *
    * @param numRecords The number of records that are expected to be found
    */
-  private void checkDocCount(int numRecords) throws IOException {
+  static void checkDocCount(int numRecords, SolrManager manager, String collectionName, boolean ignoreShardRouting)
+      throws IOException {
     if (numRecords > 0) {
       log.info("Sleeping for 5 seconds to let commit complete");
       try {
@@ -314,7 +313,7 @@ public class MultiNodeTest implements AutoCloseable {
     manager.waitForLag(docs.size());
     final double duration = (System.currentTimeMillis() - start) / 1000.0;
     manager.forceCommit();
-    checkDocCount(docs.size());
+    checkDocCount(docs.size(), manager, collectionName, ignoreShardRouting);
     log.info("Duration for {} docs was {} seconds, {} docs / second", docs.size(), duration,
         docs.size() / duration);
     log.info("Test passed");

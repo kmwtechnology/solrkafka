@@ -46,7 +46,7 @@ public class SingleNodeTest implements AutoCloseable {
    * @param docker Whether or not this test is being run in docker (uses different URLs for services)
    */
   public SingleNodeTest(Path docsPath, boolean docker) throws IOException {
-    manager = new SolrManager(solrHostPath, solrPath, null, mapper);
+    manager = new SolrManager(solrPath, mapper);
 
     log.info("Loading test documents");
     if (docsPath != null) {

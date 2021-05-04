@@ -27,24 +27,54 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+/**
+ * A class for managing and querying a Solr instance.
+ */
 public class SolrManager implements AutoCloseable {
   private static final Logger log = LogManager.getLogger(SolrManager.class);
   private static final String pluginEndpoint = "/kafka";
   private final ObjectMapper mapper;
   private final CloseableHttpClient client = HttpClients.createDefault();
-  private final File workingDir;
   private final String collectionName;
-  private final String solrHostPath;
+  private static final String solrHostPath = "http://localhost:8983/solr/";
 
-  public SolrManager(String solrHostPath, String collectionName, Path workingDir, ObjectMapper mapper) {
-    this.solrHostPath = solrHostPath;
+  /**
+   * @param collectionName The name of the collection to control/query
+   * @param mapper An ObjectMapper instance to deserialize HTTP client responses with
+   */
+  public SolrManager(String collectionName, ObjectMapper mapper) {
     this.collectionName = collectionName;
     this.mapper = mapper;
+  }
 
-    if (workingDir == null) {
-      workingDir = Path.of("/opt/solr/bin/");
+  /**
+   * Starts the Solr process in a Docker container and restarts it after a 10 second delay.
+   *
+   * @param args Ignored
+   * @throws InterruptedException If the thread gets interrupted
+   * @throws IOException If there is an issue running the Solr CLI manager process
+   */
+  public static void main(String[] args) throws InterruptedException, IOException {
+    // Start the initial process
+    log.info("Starting Solr process wrapper for Docker");
+    ProcessBuilder builder = new ProcessBuilder("/opt/docker-solr/scripts/docker-entrypoint.sh", "solr-foreground");
+    builder.inheritIO();
+    Process proc = builder.start();
+
+    // Wait for the first process to exit. If it exits with a non-zero status code, throw an exception.
+    proc.waitFor();
+    if (proc.exitValue() != 0) {
+      throw new IllegalStateException("Invalid process exit value for Solr: " + proc.exitValue());
     }
-    this.workingDir = workingDir.toFile();
+
+    // Restart process
+    log.info("Solr exited, restarting after 10 second delay");
+    Thread.sleep(10000);
+    proc = builder.start();
+    proc.waitFor();
+    if (proc.exitValue() != 0) {
+      throw new IllegalStateException("Invalid process exit value for Solr: " + proc.exitValue());
+    }
   }
 
   @Override
@@ -53,21 +83,68 @@ public class SolrManager implements AutoCloseable {
     client.close();
   }
 
-  public void stopSolr(String port) throws IOException {
-    ProcessBuilder builder = new ProcessBuilder("./solr", "stop", "-p", port);
+  /**
+   * Stops Solr from running using the bin/solr CLI manager. If the exit value is non-zero, it throws an exception
+   * that will be rethrown when {@link CompletableFuture#get()} is called.
+   *
+   * @param workingDir The directory that the executable is in. If {@code null} is passed in, then
+   *                   /opt/solr/bin/ will be used
+   * @return A {@link CompletableFuture} representing the running state of the process
+   */
+  public CompletableFuture<Void> stopSolr(File workingDir) {
+    if (workingDir == null) {
+      workingDir = new File("/opt/solr/bin/");
+    }
+
+    log.info("Stopping Solr");
+    ProcessBuilder builder = new ProcessBuilder("./solr", "stop", "-p", "8983");
     builder.directory(workingDir);
     builder.inheritIO();
-    Process proc = builder.start();
     try {
-      if (0 != proc.onExit().get(60, TimeUnit.SECONDS).exitValue()) {
-        throw new IllegalStateException("Unsuccessful exit code received: " + proc.exitValue());
-      }
-    } catch (InterruptedException | ExecutionException e) {
-      throw new IllegalStateException("Exception occurred during process", e);
-    } catch (TimeoutException e) {
-      proc.destroyForcibly();
-      throw new IllegalStateException("Process took too long to finish");
+      Process proc = builder.start();
+      return proc.onExit().thenAcceptAsync(process -> {
+        log.info("Solr stop process completed");
+        if (process.exitValue() != 0) {
+          process.destroyForcibly();
+          throw new IllegalStateException("Unsuccessful exit code received for stopSolr method: " + process.exitValue());
+        }
+      });
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
     }
+  }
+
+  /**
+   * Waits for Solr to come online by sending requests to http://localhost:8983 until a 200 status code is returned.
+   * When {@link CompletableFuture#get()} is called, a {@link Boolean} will be returned representing whether or not
+   * this method completed successfully (true = success).
+   *
+   * @return A {@link CompletableFuture} that represents the status of the node
+   */
+  public CompletableFuture<Boolean> waitForSolrOnline() {
+    return CompletableFuture.supplyAsync(() -> {
+      log.info("Waiting for Solr to be online");
+      HttpGet get = new HttpGet("http://localhost:8983/solr");
+      while (true) {
+        try (CloseableHttpResponse res = client.execute(get)) {
+          if (res.getStatusLine().getStatusCode() == 200) {
+            log.info("Request successfully completed, Solr is online");
+            return true;
+          } else {
+            log.info("Request completed with incorrect status code {}, retrying in 10 seconds",
+                res.getStatusLine().getStatusCode());
+          }
+        } catch (IOException e) {
+          log.error("IOException returned from request, retrying in 10 seconds", e);
+        }
+        try {
+          Thread.sleep(10000);
+        } catch (InterruptedException e) {
+          log.error("Wait for thread interrupted, exiting", e);
+          return false;
+        }
+      }
+    });
   }
 
   /**
