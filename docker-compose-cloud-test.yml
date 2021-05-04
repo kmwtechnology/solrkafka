@@ -6,7 +6,7 @@ services:
       dockerfile: Dockerfile-test
       context: .
     entrypoint: "/usr/local/openjdk-11/bin/java"
-    command: ["-cp", "/var/solr/data/lib/solrkafka-0.0.1-SNAPSHOT.jar", "com.kmwllc.solr.solrkafka.test.SolrManager"]
+    command: ["-cp", "/var/solr/data/lib/*", "com.kmwllc.solr.solrkafka.test.SolrManager"]
     environment:
       ZK_HOST: zookeeper:2181
       SOLR_JAVA_MEM: "-Xms1g -Xmx1g"

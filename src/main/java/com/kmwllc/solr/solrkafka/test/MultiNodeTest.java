@@ -4,13 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kmwllc.solr.solrkafka.datatype.solr.SolrDocumentSerializer;
-import org.apache.commons.io.FileUtils;
-import org.apache.http.client.methods.CloseableHttpResponse;
+import com.kmwllc.solr.solrkafka.test.docproducer.TestDocumentCreator;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpUriRequest;
-import org.apache.http.client.utils.URIBuilder;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -19,25 +14,14 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.common.SolrDocument;
-import org.apache.solr.common.cloud.SolrZkClient;
-import org.apache.zookeeper.KeeperException;
 
-import java.io.BufferedInputStream;
 import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.net.URISyntaxException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 /**
  * Runs tests in cloud mode. Sets up the nodes automatically.

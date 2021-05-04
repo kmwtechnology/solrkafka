@@ -1,6 +1,5 @@
-package org.apache.solr.update;
+package com.kmwllc.solr.solrkafka.test.docproducer;
 
-import com.kmwllc.solr.solrkafka.test.TestDocumentCreator;
 import org.apache.kafka.clients.producer.*;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.solr.common.SolrDocument;
@@ -12,7 +11,6 @@ import com.kmwllc.solr.solrkafka.datatype.solr.SolrDocumentSerializer;
 import java.lang.invoke.MethodHandles;
 import java.util.Date;
 import java.util.Properties;
-import java.util.UUID;
 
 /**
  * A Small utility class to generate some solr documents into a kafka topic.
@@ -20,7 +18,7 @@ import java.util.UUID;
  * @author kwatters
  *
  */
-public class SolrDocumentKafkaPublisher {
+public class SolrDocumentKafkaProducer {
 
 	private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 	
@@ -35,7 +33,7 @@ public class SolrDocumentKafkaPublisher {
 	private final TestDocumentCreator docs = new TestDocumentCreator(sendMessageCount, maxDocumentSize);
 
 	public static void main(String[] args) throws Exception {
-		SolrDocumentKafkaPublisher pub = new SolrDocumentKafkaPublisher();
+		SolrDocumentKafkaProducer pub = new SolrDocumentKafkaProducer();
 		pub.runProducer();
 //		pub.runShardProducer();
 	}

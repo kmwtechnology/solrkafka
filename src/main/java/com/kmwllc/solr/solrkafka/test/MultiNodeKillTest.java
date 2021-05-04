@@ -1,10 +1,9 @@
 package com.kmwllc.solr.solrkafka.test;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kmwllc.solr.solrkafka.datatype.solr.SolrDocumentSerializer;
-import org.apache.http.client.methods.HttpGet;
+import com.kmwllc.solr.solrkafka.test.docproducer.TestDocumentCreator;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -17,10 +16,7 @@ import org.apache.solr.common.SolrDocument;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;

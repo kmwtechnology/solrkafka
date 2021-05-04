@@ -1,4 +1,4 @@
-package com.kmwllc.solr.solrkafka.test;
+package com.kmwllc.solr.solrkafka.test.docproducer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.solr.common.SolrDocument;

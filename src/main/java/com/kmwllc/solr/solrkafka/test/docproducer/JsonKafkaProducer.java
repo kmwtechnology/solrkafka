@@ -1,16 +1,12 @@
-package org.apache.solr.update;
+package com.kmwllc.solr.solrkafka.test.docproducer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kmwllc.solr.solrkafka.datatype.json.JsonDeserializer;
 import com.kmwllc.solr.solrkafka.datatype.json.JsonSerializer;
-import com.kmwllc.solr.solrkafka.datatype.solr.SolrDocumentSerializer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.serialization.StringSerializer;
-import org.apache.solr.common.SolrDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,7 +21,7 @@ import java.util.UUID;
 /**
  * A Small utility class to generate some json solr documents into a kafka topic.
  */
-public class JsonKafkaPublisher {
+public class JsonKafkaProducer {
 
 	private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 	
@@ -35,7 +31,7 @@ public class JsonKafkaPublisher {
 	public int sendMessageCount = 1000000;
 
 	public static void main(String[] args) throws Exception {
-		JsonKafkaPublisher pub = new JsonKafkaPublisher();
+		JsonKafkaProducer pub = new JsonKafkaProducer();
 //		pub.runProducer();
 		pub.runShardProducer();
 	}
