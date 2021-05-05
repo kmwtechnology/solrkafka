@@ -38,6 +38,7 @@ public class MultiNodeTest implements AutoCloseable {
   private final boolean ignoreShardRouting;
   private final boolean skipSeedKafka;
   private static final int NUM_DOCS = 15_000;
+  private static final int DOC_SIZE = 2500;
   private final SolrManager manager;
 
   /**
@@ -54,7 +55,7 @@ public class MultiNodeTest implements AutoCloseable {
     if (docsPath != null) {
       docs = new TestDocumentCreator(mapper.readValue(docsPath.toFile(), new TypeReference<List<SolrDocument>>() {}));
     } else {
-      docs = new TestDocumentCreator(NUM_DOCS, 10_000);
+      docs = new TestDocumentCreator(NUM_DOCS, DOC_SIZE);
     }
 
     this.collectionName = collectionName;
@@ -107,8 +108,9 @@ public class MultiNodeTest implements AutoCloseable {
         // Tests all shard routing functionality
         ignoreShardRouting = true;
       } else {
-        log.fatal("Unknown param passed, usage: [-d] [-p DOCS_PATH] [-c CONFIG_PATH] [--cname COLLECTION_NAME] [-k]" +
-            "[--pulls NUM_PULL_REPLICAS] [--tlogs NUM_TLOG_REPLICAS] [--nrts|-r NUM_NRT_REPLICAS] [-s NUM_SHARDS] [-i] [--kill-node]");
+        log.fatal("Unknown param passed {}, usage: [-d] [-p DOCS_PATH] [-c CONFIG_PATH] [--cname COLLECTION_NAME] [-k]" +
+            "[--pulls NUM_PULL_REPLICAS] [--tlogs NUM_TLOG_REPLICAS] [--nrts|-r NUM_NRT_REPLICAS] [-s NUM_SHARDS] [-i] [--kill-node]",
+            args[i]);
         System.exit(1);
       }
     }

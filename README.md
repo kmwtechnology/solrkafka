@@ -50,7 +50,7 @@ Copy produced jar and kafka-clients jar at root of project to lib dir.
 Copy the following into the solrconfig.xml file, and make sure the `openSearcher` argument of `autoCommit` is set to true.
 
 ```xml
-<!-- Creates the main request handler. This is available at the /solr/<collection-and-optional-core>/kafka. -->
+<!-- Creates the main request handler. This is available at the /solr/<collection>/kafka. -->
 <requestHandler name="/kafka" class="com.kmwllc.solr.solrkafka.handler.requesthandler.SolrKafkaRequestHandler">
     <lst name="defaults">
         <!-- The data type to read from Kafka. Available options are "solr" and "json". Default is "solr". -->
@@ -172,6 +172,8 @@ In the test package (within the main sources directory), there are several class
       - `-k`: if provided, no new documents will be added to Kafka, required if running multiple times in the same 
         deployment after the first run
     - Check the status code to see if it was successful: `echo $?`
+    - Note: after multiple runs, the volume may fill up completely and cause the cluster to go into an irrecoverable failure mode.
+      This should not count as a test failure, so in cases where this occurs, restart the deployment and continue testing.
 - `MultiNodeKillTest`: a class that tests indexing in a cloud mode environment where a node goes offline and comes back
   online. Can only be run once before the deployment needs to be restarted. Does not require that the 
   collection is set up beforehand. Uses the docker-compose-cloud-test.yml docker compose file with the Dockerfile-test dockerfile.

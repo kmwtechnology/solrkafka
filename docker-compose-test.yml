@@ -28,5 +28,8 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://:9092
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_CREATE_TOPICS: "testtopic:10:1"
+      KAFKA_MESSAGE_MAX_BYTES: 250000000
+      KAFKA_MAX_REQUEST_SIZE: 250000000
+      KAFKA_SOCKET_REQUEST_MAX_BYTES: 250000000
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

@@ -6,4 +6,4 @@ RUN mvn -B verify --file pom.xml
 
 FROM solr:8.8.1
 
-COPY --from=builder /solrkafka/target/solrkafka-0.0.1-SNAPSHOT.jar server/solr/lib/
+COPY --from=builder /solrkafka/target/solrkafka-*.jar server/solr/lib/

@@ -486,9 +486,11 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
 
   @Override
   public void process(WatchedEvent event) {
-    log.info("ZK watcher callback event received in core {}", core.getName());
+    log.info("ZK watcher callback event received in core {} for event {}", core.getName(), event);
     // If the event isn't at the expected zkCollectionPath node or it's not a data changed event, then ignore
-    if (!event.getPath().equals(zkCollectionPath) || event.getType() != Event.EventType.NodeDataChanged) {
+    if (event.getPath() == null || !event.getPath().equals(zkCollectionPath)
+        || event.getType() != Event.EventType.NodeDataChanged) {
+      log.info("Incorrect event path or type");
       return;
     }
 

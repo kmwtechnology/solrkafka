@@ -6,12 +6,12 @@ RUN mvn -B verify --file pom.xml
 
 FROM solr:8.8.1
 
-COPY --from=builder /solrkafka/target/solrkafka-0.0.1-SNAPSHOT.jar /var/solr/data/lib/
+COPY --from=builder /solrkafka/target/solrkafka-*.jar /var/solr/data/lib/
 
 USER root
 
 RUN cp -r server/solr/configsets/_default server/solr/configsets/testconfig
-COPY src/test/resources/solrconfig.xml server/solr/configsets/testconfig/conf/
-COPY src/test/resources/solrconfig-routing.xml server/solr/configsets/testconfig/conf/
+COPY src/main/resources/test_configs/solrconfig.xml server/solr/configsets/testconfig/conf/
+COPY src/main/resources/test_configs/solrconfig-routing.xml server/solr/configsets/testconfig/conf/
 
 USER $SOLR_USER
