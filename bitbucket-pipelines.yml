@@ -26,9 +26,13 @@
 #            # See more security tools at https://bitbucket.org/product/features/pipelines/integrations?&category=security
 #            - pipe: atlassian/git-secrets-scan:0.4.3
 
+options:
+  docker: true
+
 pipelines:
   default:
     - step:
         name: Test
         script:
           - echo THIS IS A TEST
+          - docker -v
