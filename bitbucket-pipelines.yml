@@ -32,7 +32,8 @@ options:
 pipelines:
   default:
     - step:
-        name: Test
+        name: Build Dockerfile
         script:
-          - echo THIS IS A TEST
           - docker -v
+          - ls
+          - docker build -t kmw:solrkafka-test -f Dockerfile-test .
