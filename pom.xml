@@ -78,8 +78,9 @@
 		<!-- https://mvnrepository.com/artifact/org.apache.solr/solr-dataimporthandler -->
 		<dependency>
 			<groupId>org.apache.solr</groupId>
-			<artifactId>solr-dataimporthandler</artifactId>
+			<artifactId>solr-test-framework</artifactId>
 			<version>8.8.0</version>
+			<scope>test</scope>
 		</dependency>
 
 		<dependency>
