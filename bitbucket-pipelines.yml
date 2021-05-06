@@ -9,7 +9,7 @@ image: python:3.9-buster
 
 options:
   docker: true
-  max-time: 120
+  max-time: 10
   size: 2x
 definitions:
   services:
@@ -62,7 +62,7 @@ pipelines:
               - pip install docker-compose
               - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
               - sleep 20
-              - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d --tlogs 1 --pulls 1
+              - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d --tlogs 2 --pulls 2
             after-script:
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
         - step:

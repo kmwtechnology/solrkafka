@@ -14,8 +14,8 @@ services:
     depends_on:
       - zookeeper
       - kafka
-    ports:
-      - "8983:8983"
+#    ports:
+#      - "8983:8983"
     networks:
       - solrkafka
     deploy:
@@ -37,8 +37,8 @@ services:
     depends_on:
       - zookeeper
       - kafka
-    ports:
-      - "7574:8983"
+#    ports:
+#      - "7574:8983"
     networks:
       - solrkafka
     deploy:
@@ -57,8 +57,8 @@ services:
       - /datalog
     networks:
       - solrkafka
-    ports:
-      - "2181:2181"
+#    ports:
+#      - "2181:2181"
 
   kafka:
     image: wurstmeister/kafka:2.13-2.7.0
