@@ -23,7 +23,7 @@ pipelines:
           - docker
           - pip
         script:
-          - docker build -t kmw:solrkafka-test -f Dockerfile-test . --no-cache
+          - docker build -t kmw:solrkafka-test -f Dockerfile-test . # (might help if it's not working) --no-cache
           - pip install docker-compose
         after-script:
           # Collect checkstyle results, if any, and convert to Bitbucket Code Insights.
