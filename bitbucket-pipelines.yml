@@ -8,7 +8,7 @@
 image: python:3.9-buster
 
 options:
-  max-time: 10
+  max-time: 20
   size: 2x
 definitions:
   services:
@@ -34,31 +34,22 @@ pipelines:
           - solrkafka-test.docker
     - parallel:
         - step:
-            name: Security Scan
-            script:
-              # Run a security scan for sensitive data.
-              # See more security tools at https://bitbucket.org/product/features/pipelines/integrations?&category=security
-              - pipe: atlassian/git-secrets-scan:0.4.3
-        - step:
             name: Single Node Test
             caches:
               - pip
             services:
               - docker
             script:
-              - ls
               - docker load --input ./solrkafka-test.docker
-              - docker image ls
               - pip install docker-compose
               - docker-compose -f docker-compose-test.yml --verbose up -d --no-color
               - sleep 20
               - docker exec -t solrkafka_solr java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.SingleNodeTest -d
             after-script:
+              - docker cp solrkafka_solr:/var/solr/logs/* ./logs
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
-              - /var/solr/logs/solr.log
-              - /var/solr/logs/solr_gc.log
-              - /var/solr/logs/solr_slow_requests.log
+              - logs/
         - step:
             name: Multi Node Test Normal Routing
             caches:
@@ -72,11 +63,10 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d --tlogs 2 --pulls 2
             after-script:
+              - docker cp solrkafka_solr:/var/solr/logs/* ./logs
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
-              - /var/solr/logs/solr.log
-              - /var/solr/logs/solr_gc.log
-              - /var/solr/logs/solr_slow_requests.log
+              - logs/
         - step:
             name: Multi Node Test All Shard Routing
             caches:
@@ -90,11 +80,10 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d -i
             after-script:
+              - docker cp solrkafka_solr:/var/solr/logs/* ./logs
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
-              - /var/solr/logs/solr.log
-              - /var/solr/logs/solr_gc.log
-              - /var/solr/logs/solr_slow_requests.log
+              - logs/
         - step:
             name: Multi Node Kill Test
             caches:
@@ -108,11 +97,10 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeKillTest -d
             after-script:
+              - docker cp solrkafka_solr:/var/solr/logs/* ./logs
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
-              - /var/solr/logs/solr.log
-              - /var/solr/logs/solr_gc.log
-              - /var/solr/logs/solr_slow_requests.log
+              - logs/
 #        - step:
 #            name: Failure Test
 #            caches:
@@ -127,7 +115,3 @@ pipelines:
 #              - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.FailureTest
 #            after-script:
 #              - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
-#            artifacts:
-#              - /var/solr/logs/solr.log
-#              - /var/solr/logs/solr_gc.log
-#              - /var/solr/logs/solr_slow_requests.log
