@@ -129,9 +129,10 @@ public class MultiNodeTest implements AutoCloseable {
       test.manager.manageImporter(true);
       test.runTest();
     } catch (Throwable e) {
-      log.error("Exception occurred while setting up/checking initial state, exiting with status code 1", e);
+      log.error("Exception occurred while running test, exiting with status code 1", e);
       System.exit(1);
     }
+    log.info("Test successfully completed");
   }
 
   @Override
