@@ -46,7 +46,7 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.SingleNodeTest -d
             after-script:
-              - docker cp solrkafka_solr:/var/solr/logs/* ./logs
+              - docker cp solrkafka_solr:/var/solr/logs/ ./logs
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
               - logs/
@@ -63,7 +63,7 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d --tlogs 2 --pulls 2
             after-script:
-              - docker cp solrkafka_solr:/var/solr/logs/* ./logs
+              - docker cp solrkafka_solr:/var/solr/logs/ ./logs
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
               - logs/
@@ -80,7 +80,7 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d -i
             after-script:
-              - docker cp solrkafka_solr:/var/solr/logs/* ./logs
+              - docker cp solrkafka_solr:/var/solr/logs/ ./logs
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
               - logs/
@@ -97,7 +97,7 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeKillTest -d
             after-script:
-              - docker cp solrkafka_solr:/var/solr/logs/* ./logs
+              - docker cp solrkafka_solr:/var/solr/logs/ ./logs
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
               - logs/
