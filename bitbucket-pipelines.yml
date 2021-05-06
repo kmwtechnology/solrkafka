@@ -8,7 +8,6 @@
 image: python:3.9-buster
 
 options:
-  docker: true
   max-time: 10
   size: 2x
 definitions:
@@ -24,12 +23,15 @@ pipelines:
           - pip
         script:
           - docker build -t kmw:solrkafka-test -f Dockerfile-test . # (might help if it's not working) --no-cache
+          - docker save --output solrkafka-test.docker kmw:solrkafka-test
           - pip install docker-compose
         after-script:
           # Collect checkstyle results, if any, and convert to Bitbucket Code Insights.
           - pipe: atlassian/checkstyle-report:0.2.0
         services:
           - docker
+        artifacts:
+          - solrkafka-test.docker
     - parallel:
         - step:
             name: Security Scan
@@ -40,70 +42,92 @@ pipelines:
         - step:
             name: Single Node Test
             caches:
-              - docker
               - pip
             services:
               - docker
             script:
+              - ls
+              - docker load --input ./solrkafka-test.docker
+              - docker image ls
               - pip install docker-compose
-              - docker-compose -f docker-compose-test.yml --verbose up -d --no-color &
-              - sleep 30
+              - docker-compose -f docker-compose-test.yml --verbose up -d --no-color
+              - sleep 20
               - docker exec -t solrkafka_solr java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.SingleNodeTest -d
             after-script:
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
+            artifacts:
+              - /var/solr/logs/solr.log
+              - /var/solr/logs/solr_gc.log
+              - /var/solr/logs/solr_slow_requests.log
         - step:
             name: Multi Node Test Normal Routing
             caches:
-              - docker
               - pip
             services:
               - docker
             script:
+              - docker load --input ./solrkafka-test.docker
               - pip install docker-compose
-              - docker-compose -f docker-compose-cloud-test.yml --verbose up --no-color &
-              - sleep 30
+              - docker-compose -f docker-compose-cloud-test.yml --verbose up --no-color
+              - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d --tlogs 2 --pulls 2
             after-script:
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
+            artifacts:
+              - /var/solr/logs/solr.log
+              - /var/solr/logs/solr_gc.log
+              - /var/solr/logs/solr_slow_requests.log
         - step:
             name: Multi Node Test All Shard Routing
             caches:
-              - docker
               - pip
             services:
               - docker
             script:
+              - docker load --input ./solrkafka-test.docker
               - pip install docker-compose
-              - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color &
-              - sleep 30
+              - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
+              - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d -i
             after-script:
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
+            artifacts:
+              - /var/solr/logs/solr.log
+              - /var/solr/logs/solr_gc.log
+              - /var/solr/logs/solr_slow_requests.log
         - step:
             name: Multi Node Kill Test
             caches:
-              - docker
               - pip
             services:
               - docker
             script:
+              - docker load --input ./solrkafka-test.docker
               - pip install docker-compose
-              - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color &
-              - sleep 30
+              - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
+              - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeKillTest -d
             after-script:
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
+            artifacts:
+              - /var/solr/logs/solr.log
+              - /var/solr/logs/solr_gc.log
+              - /var/solr/logs/solr_slow_requests.log
 #        - step:
 #            name: Failure Test
 #            caches:
-#              - docker
 #              - pip
 #            services:
 #              - docker
 #            script:
+#              - docker load --input ./solrkafka-test.docker
 #              - pip install docker-compose
-#              - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color &
-#              - sleep 30
+#              - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
+#              - sleep 20
 #              - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.FailureTest
 #            after-script:
 #              - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
+#            artifacts:
+#              - /var/solr/logs/solr.log
+#              - /var/solr/logs/solr_gc.log
+#              - /var/solr/logs/solr_slow_requests.log
