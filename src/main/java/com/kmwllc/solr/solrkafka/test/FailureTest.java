@@ -10,6 +10,7 @@ public class FailureTest {
     log.info("Sleeping for 15 seconds before throwing exception");
 
     Thread.sleep(15000);
-    throw new IllegalStateException("This is expected");
+    log.error("Error", new IllegalStateException("This is expected"));
+    System.exit(1);
   }
 }

@@ -74,7 +74,8 @@ public class SingleNodeTest implements AutoCloseable {
       test.manager.manageImporter(true);
       test.runTest();
     } catch (Throwable e) {
-      log.error("Error occurred while running test", e);
+      log.error("Error occurred while running test, exiting with status code 1", e);
+      System.exit(1);
     }
   }
 

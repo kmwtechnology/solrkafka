@@ -254,7 +254,7 @@ public class SolrManager implements AutoCloseable {
 
   /**
    * Waits for the consumer group lag to be 0 for each Kafka partition or the importer to stop.
-   * If it's not reached in 45 seconds, an execption is thrown.
+   * If it's not reached in 45 seconds, an exception is thrown.
    */
   public void waitForLag(int numDocs) throws IOException {
     HttpGet get = new HttpGet(solrHostPath + collectionName + pluginEndpoint + "?action=status");
@@ -267,7 +267,7 @@ public class SolrManager implements AutoCloseable {
           throw new IllegalStateException("Waited " + numStatic +
               " rounds, but documents could not all be consumed from Kafka");
         }
-        log.info("Sleeping for 15 seconds on round {}", round++);
+        log.info("Sleeping for 30 seconds on round {}", round++);
         Thread.sleep(30000);
       } catch (InterruptedException e) {
         log.info("Interrupted while sleeping");

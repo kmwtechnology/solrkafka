@@ -129,7 +129,8 @@ public class MultiNodeTest implements AutoCloseable {
       test.manager.manageImporter(true);
       test.runTest();
     } catch (Throwable e) {
-      log.error("Exception occurred while setting up/checking initial state", e);
+      log.error("Exception occurred while setting up/checking initial state, exiting with status code 1", e);
+      System.exit(1);
     }
   }
 
@@ -220,8 +221,8 @@ public class MultiNodeTest implements AutoCloseable {
         }
 
         if (!node.isObject() || !node.has("index") ||
-            !node.get("index").has("numDocs") || !node.get("index").has("version")) {
-          errors.add("Node does not contain numDocs or version fields: " + node.get("name"));
+            !node.get("index").has("numDocs")) {
+          errors.add("Node does not contain numDocs field: " + node.get("name"));
         }
 
         String shard = node.get("cloud").get("shard").textValue();
@@ -259,13 +260,11 @@ public class MultiNodeTest implements AutoCloseable {
                 (sb1, sb2) -> sb1.append(sb2).append("\n")).toString());
       } else {
         // Return if the test passed
-        log.info("Expected doc and version numbers for shards found");
+        log.info("Expected doc numbers for shards found");
         return;
       }
-      if (i % 5 == 0) {
-        log.info("Sleeping for 5 seconds on round {} of state check", i);
-        manager.forceCommit();
-      }
+      log.info("Forcing commit in state check");
+      manager.forceCommit();
     }
     throw new IllegalStateException("Errors found in state after 25 rounds of requests");
   }

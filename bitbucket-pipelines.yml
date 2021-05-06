@@ -21,8 +21,10 @@ pipelines:
         name: Build
         caches:
           - docker
+          - pip
         script:
           - docker build -t kmw:solrkafka-test -f Dockerfile-test .
+          - pip install docker-compose
         after-script:
           # Collect checkstyle results, if any, and convert to Bitbucket Code Insights.
           - pipe: atlassian/checkstyle-report:0.2.0
@@ -39,6 +41,7 @@ pipelines:
             name: Single Node Test
             caches:
               - docker
+              - pip
             services:
               - docker
             script:
@@ -46,10 +49,13 @@ pipelines:
               - docker-compose -f docker-compose-test.yml --verbose up -d --no-color
               - sleep 20
               - docker exec -t solrkafka_solr java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.SingleNodeTest -d
+            after-script:
+              - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
         - step:
             name: Multi Node Test Normal Routing
             caches:
               - docker
+              - pip
             services:
               - docker
             script:
@@ -57,21 +63,27 @@ pipelines:
               - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d --tlogs 1 --pulls 1
+            after-script:
+              - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
         - step:
             name: Multi Node Test All Shard Routing
             caches:
               - docker
+              - pip
             services:
               - docker
             script:
               - pip install docker-compose
               - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
               - sleep 20
-              - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d -k -i --cname test1
+              - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d -i
+            after-script:
+              - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
         - step:
             name: Multi Node Kill Test
             caches:
               - docker
+              - pip
             services:
               - docker
             script:
@@ -79,10 +91,13 @@ pipelines:
               - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeKillTest -d
+            after-script:
+              - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
 #        - step:
 #            name: Failure Test
 #            caches:
 #              - docker
+#              - pip
 #            services:
 #              - docker
 #            script:
@@ -90,3 +105,5 @@ pipelines:
 #              - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
 #              - sleep 20
 #              - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.FailureTest
+#            after-script:
+#              - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
