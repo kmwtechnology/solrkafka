@@ -3,11 +3,18 @@ package com.kmwllc.solr.solrkafka.test;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kmwllc.solr.solrkafka.datatype.solr.SolrDocumentSerializer;
+import com.kmwllc.solr.solrkafka.importer.KafkaImporter;
 import com.kmwllc.solr.solrkafka.test.docproducer.TestDocumentCreator;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.OffsetSpec;
+import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -16,12 +23,15 @@ import org.apache.solr.common.SolrDocument;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 /**
  * Runs tests in cloud mode. Kills a node while indexing then brings it back up. Sets up the nodes automatically.
@@ -141,6 +151,7 @@ public class MultiNodeKillTest implements AutoCloseable {
     } catch (InterruptedException e) {
       log.error("Seeder thread interrupted, exiting", e);
     }
+    log.info("Seeded {} docs", numDocsSeeded);
   }
 
   /**
@@ -170,9 +181,9 @@ public class MultiNodeKillTest implements AutoCloseable {
     // Let importing happen normally for 10 seconds after all nodes are online
     Thread.sleep(10000);
 
-    // Stop the seeder and wait up to 5 seconds for the thread to exit
+    // Stop the seeder and wait up to 15 seconds for the thread to exit
     seedDocs = false;
-    docSupplier.get(5, TimeUnit.SECONDS);
+    docSupplier.get(15, TimeUnit.SECONDS);
 
     // Check that the solrManagerThread successfully completed
     if (!solrManagerThread.isDone() || solrManagerThread.isCompletedExceptionally() || !solrManagerThread.get()) {
