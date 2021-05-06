@@ -263,12 +263,12 @@ public class SolrManager implements AutoCloseable {
     int lastTotalOffset = numDocs;
     while (true) {
       try {
-        if (numStatic > 5) {
+        if (numStatic > 10) {
           throw new IllegalStateException("Waited " + numStatic +
               " rounds, but documents could not all be consumed from Kafka");
         }
         log.info("Sleeping for 15 seconds on round {}", round++);
-        Thread.sleep(15000);
+        Thread.sleep(30000);
       } catch (InterruptedException e) {
         log.info("Interrupted while sleeping");
         return;
