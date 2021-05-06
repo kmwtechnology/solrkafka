@@ -46,7 +46,6 @@ pipelines:
               - docker-compose -f docker-compose-test.yml --verbose up -d --no-color
               - sleep 20
               - docker exec -t solrkafka_solr java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.SingleNodeTest -d
-              - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
         - step:
             name: Multi Node Test Normal Routing
             caches:
@@ -58,7 +57,6 @@ pipelines:
               - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d --tlogs 1 --pulls 1
-              - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
         - step:
             name: Multi Node Test All Shard Routing
             caches:
@@ -70,7 +68,6 @@ pipelines:
               - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d -k -i --cname test1
-              - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
         - step:
             name: Multi Node Kill Test
             caches:
@@ -82,7 +79,6 @@ pipelines:
               - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeKillTest -d
-              - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
 #        - step:
 #            name: Failure Test
 #            caches:
@@ -94,4 +90,3 @@ pipelines:
 #              - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
 #              - sleep 20
 #              - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.FailureTest
-#              - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
