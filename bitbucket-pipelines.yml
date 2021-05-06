@@ -63,10 +63,12 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d
             after-script:
-              - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs
+              - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs-8983
+              - docker cp solrkafka_solr_7574:/var/solr/logs/ ./logs-7574
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
-              - logs/*
+              - logs-8983/*
+              - logs-7574/*
         - step:
             name: Multi Node Test All Shard Routing
             caches:
@@ -80,10 +82,12 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d -i
             after-script:
-              - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs
+              - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs-8983
+              - docker cp solrkafka_solr_7574:/var/solr/logs/ ./logs-7574
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
-              - logs/*
+              - logs-8983/*
+              - logs-7574/*
         - step:
             name: Multi Node Kill Test
             caches:
@@ -97,10 +101,12 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeKillTest -d
             after-script:
-              - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs
+              - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs-8983
+              - docker cp solrkafka_solr_7574:/var/solr/logs/ ./logs-7574
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
-              - logs/*
+              - logs-8983/*
+              - logs-7574/*
 #        - step:
 #            name: Failure Test
 #            caches:
