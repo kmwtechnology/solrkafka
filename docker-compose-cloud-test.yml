@@ -2,6 +2,7 @@ version: "3.9"
 services:
   solr-8983:
     image: kmw:solrkafka-test
+    container_name: solrkafka_solr_8983
     build:
       dockerfile: Dockerfile-test
       context: .
@@ -26,6 +27,7 @@ services:
 
   solr-7574:
     image: kmw:solrkafka-test
+    container_name: solrkafka_solr_7574
     build:
       dockerfile: Dockerfile-test
       context: .
