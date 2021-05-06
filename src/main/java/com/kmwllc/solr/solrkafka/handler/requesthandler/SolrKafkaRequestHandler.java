@@ -448,7 +448,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       // (possibly) running KafkaImporter
       synchronized (this) {
         // Stop the currently running importer
-        if (importer != null) {
+        if (importer != null && importer.isRunning()) {
           log.info("Setting new core in importer");
           importer.stop();
         }
@@ -469,7 +469,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
           @Override
           public void preClose(SolrCore core) {
             log.info("SolrCore shutting down");
-            if (importer != null) {
+            if (importer != null && importer.isRunning()) {
               importer.stop();
             }
           }
@@ -499,7 +499,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
       // If status isn't OK, log error and stop importer
       if (rc != KeeperException.Code.OK.intValue()) {
         log.error("Non-OK code received in ZK callback for core {}: {}, stopping importer", core.getName(), rc);
-        if (importer != null && !importer.isRunning()) {
+        if (importer != null && importer.isRunning()) {
           importer.stop();
         }
         return;

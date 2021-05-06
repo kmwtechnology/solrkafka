@@ -175,16 +175,24 @@ public class KafkaImporter implements Runnable {
     running = false;
 
     // Let the importer try to stop on its own
-    try {
-      Thread.sleep(pollTimeout.toMillis() * 5);
-    } catch (InterruptedException e) {
-      log.error("Thread interrupted while stopping", e);
+    if (thread.isAlive()) {
+      try {
+        Thread.sleep(pollTimeout.toMillis() * 2);
+      } catch (InterruptedException e) {
+        log.error("Thread interrupted while stopping", e);
+      }
     }
 
     // Interrupt the thread if it couldn't shut down on its own
-    if (thread != null && thread.isAlive()) {
+    if (thread.isAlive()) {
       log.warn("Thread took too long to shut down; interrupting thread");
       thread.interrupt();
+    }
+
+    try {
+      updateHandler.close();
+    } catch (IOException e) {
+      log.error("Error closing Update Handler", e);
     }
   }
 
@@ -203,7 +211,7 @@ public class KafkaImporter implements Runnable {
    * @return true if the thread is running
    */
   public boolean isThreadAlive() {
-    return thread != null && thread.isAlive();
+    return thread.isAlive();
   }
 
   @Override
