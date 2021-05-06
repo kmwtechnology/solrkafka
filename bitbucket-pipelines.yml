@@ -107,6 +107,25 @@ pipelines:
             artifacts:
               - logs-8983/*
               - logs-7574/*
+        - step:
+            name: Multi Node Kill Test All Shard Routing
+            caches:
+              - pip
+            services:
+              - docker
+            script:
+              - docker load --input ./solrkafka-test.docker
+              - pip install docker-compose
+              - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
+              - sleep 20
+              - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeKillTest -d -i
+            after-script:
+              - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs-8983
+              - docker cp solrkafka_solr_7574:/var/solr/logs/ ./logs-7574
+              - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
+            artifacts:
+              - logs-8983/*
+              - logs-7574/*
 #        - step:
 #            name: Failure Test
 #            caches:
