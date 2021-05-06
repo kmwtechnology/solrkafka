@@ -172,11 +172,11 @@ public class MultiNodeTest implements AutoCloseable {
       throw new IllegalStateException("Nodes not active " + errors);
     }
 
-    // Try to check the number of documents each node contains up to 5 times
+    // Try to check the number of documents each node contains up to 25 times
     for (int i = 0; i < 25; i++) {
       errors.clear();
       try {
-        Thread.sleep(1000);
+        Thread.sleep(5000);
       } catch (InterruptedException e) {
         throw new IllegalStateException("Interrupted while waiting", e);
       }
@@ -263,7 +263,7 @@ public class MultiNodeTest implements AutoCloseable {
         return;
       }
     }
-    throw new IllegalStateException("Errors found in state after 5 rounds of requests");
+    throw new IllegalStateException("Errors found in state after 25 rounds of requests");
   }
 
   /**

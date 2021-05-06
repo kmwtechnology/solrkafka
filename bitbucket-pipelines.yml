@@ -83,15 +83,15 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeKillTest -d
               - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
-        - step:
-            name: Failure Test
-            caches:
-              - docker
-            services:
-              - docker
-            script:
-              - pip install docker-compose
-              - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
-              - sleep 20
-              - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.FailureTest
-              - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
+#        - step:
+#            name: Failure Test
+#            caches:
+#              - docker
+#            services:
+#              - docker
+#            script:
+#              - pip install docker-compose
+#              - docker-compose -f docker-compose-cloud-test.yml --verbose up -d --no-color
+#              - sleep 20
+#              - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.FailureTest
+#              - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
