@@ -256,11 +256,11 @@ public class SolrManager implements AutoCloseable {
    * Waits for the consumer group lag to be 0 for each Kafka partition or the importer to stop.
    * If it's not reached in 45 seconds, an exception is thrown.
    */
-  public void waitForLag(int numDocs) throws IOException {
+  public void waitForLag(long numDocs) throws IOException {
     HttpGet get = new HttpGet(solrHostPath + collectionName + pluginEndpoint + "?action=status");
     int round = 0;
     int numStatic = 0;
-    int lastTotalOffset = numDocs;
+    long lastTotalOffset = numDocs;
     while (true) {
       try {
         if (numStatic > 10) {

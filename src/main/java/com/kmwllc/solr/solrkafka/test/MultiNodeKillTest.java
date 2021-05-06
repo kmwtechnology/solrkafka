@@ -49,7 +49,7 @@ public class MultiNodeKillTest implements AutoCloseable {
   private final boolean ignoreShardRouting;
   private static final int NUM_DOCS = 15_000;
   private final SolrManager manager;
-  private volatile int numDocsSeeded = 0;
+  private volatile long numDocsSeeded = 0;
   private volatile boolean seedDocs = true;
   private final File solrBinDir;
 
@@ -185,6 +185,12 @@ public class MultiNodeKillTest implements AutoCloseable {
     // Stop the seeder and wait up to 15 seconds for the thread to exit
     seedDocs = false;
     docSupplier.get(15, TimeUnit.SECONDS);
+    long numDocs = KafkaImporter.getEndOffsets(kafkaHostPath + kafkaPort, topic).values().stream()
+        .mapToLong(l -> l).sum();
+    log.info("Number of docs seeded is {}, Expected number of docs seeded is {}", numDocs, numDocsSeeded);
+    if (numDocs != numDocsSeeded) {
+      throw new IllegalStateException("Num docs is not equal to num docs seeded, test assumption failed (this says nothing about the test though...)");
+    }
 
     // Check that the solrManagerThread successfully completed
     if (!solrManagerThread.isDone() || solrManagerThread.isCompletedExceptionally() || !solrManagerThread.get()) {

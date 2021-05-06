@@ -5,6 +5,8 @@ import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.ConsumerGroupListing;
 import org.apache.kafka.clients.admin.OffsetSpec;
+import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.clients.admin.TopicListing;
 import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -12,6 +14,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.logging.log4j.LogManager;
@@ -37,6 +40,7 @@ import java.time.Instant;
 import java.time.temporal.TemporalAmount;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -351,6 +355,32 @@ public class KafkaImporter implements Runnable {
       }
       return map;
     } catch (InterruptedException | ExecutionException | TimeoutException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  public static Map<String, Long> getEndOffsets(String kafkaBroker, String topic) {
+    final Properties props = new Properties();
+    props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBroker);
+
+    // Create an Admin to use
+    try (final Admin admin = Admin.create(props)) {
+      final Map<TopicPartition, Long> ends = new HashMap<>();
+      KafkaFuture<TopicDescription> future = admin.describeTopics(Collections.singletonList(topic))
+          .values().get(topic);
+      if (future == null) {
+        throw new IllegalArgumentException("Unknown topic provided: " + topic);
+      }
+
+      Map<TopicPartition, OffsetSpec> partitions = future.get(5, TimeUnit.SECONDS).partitions()
+          .stream().collect(Collectors.toMap(entry -> new TopicPartition(topic, entry.partition()),
+              entry -> OffsetSpec.latest()));
+      return admin.listOffsets(partitions).all().get(5, TimeUnit.SECONDS)
+          .entrySet().stream()
+          .collect(Collectors.toMap(
+              o -> o.getKey().topic() + o.getKey().partition(),
+              o -> o.getValue().offset()));
+    } catch (InterruptedException | TimeoutException | ExecutionException e) {
       throw new IllegalStateException(e);
     }
   }

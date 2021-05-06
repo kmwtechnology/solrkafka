@@ -145,7 +145,7 @@ public class MultiNodeTest implements AutoCloseable {
    *
    * @param numRecords The number of records that are expected to be found
    */
-  static void checkDocCount(int numRecords, SolrManager manager, String collectionName, boolean ignoreShardRouting)
+  static void checkDocCount(long numRecords, SolrManager manager, String collectionName, boolean ignoreShardRouting)
       throws IOException {
     if (numRecords > 0) {
       log.info("Sleeping for 5 seconds to let commit complete");
