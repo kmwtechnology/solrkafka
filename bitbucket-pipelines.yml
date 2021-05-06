@@ -49,7 +49,7 @@ pipelines:
               - docker cp solrkafka_solr:/var/solr/logs/ ./logs
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
-              - logs/
+              - logs/*
         - step:
             name: Multi Node Test Normal Routing
             caches:
@@ -61,12 +61,12 @@ pipelines:
               - pip install docker-compose
               - docker-compose -f docker-compose-cloud-test.yml --verbose up --no-color
               - sleep 20
-              - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d --tlogs 2 --pulls 2
+              - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d
             after-script:
-              - docker cp solrkafka_solr:/var/solr/logs/ ./logs
+              - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
-              - logs/
+              - logs/*
         - step:
             name: Multi Node Test All Shard Routing
             caches:
@@ -80,10 +80,10 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d -i
             after-script:
-              - docker cp solrkafka_solr:/var/solr/logs/ ./logs
+              - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
-              - logs/
+              - logs/*
         - step:
             name: Multi Node Kill Test
             caches:
@@ -97,10 +97,10 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeKillTest -d
             after-script:
-              - docker cp solrkafka_solr:/var/solr/logs/ ./logs
+              - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
-              - logs/
+              - logs/*
 #        - step:
 #            name: Failure Test
 #            caches:
