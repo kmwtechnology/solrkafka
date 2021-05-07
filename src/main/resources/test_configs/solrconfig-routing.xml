@@ -28,7 +28,7 @@
             <str name="ignoreShardRouting">true</str>
             <str name="kafkaBroker">kafka:9092</str>
             <str name="topicNames">testtopic</str>
-            <str name="kafkaPollInterval">45000</str>
+            <str name="kafkaPollInterval">15000</str>
         </lst>
     </requestHandler>
 

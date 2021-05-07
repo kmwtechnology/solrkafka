@@ -229,6 +229,8 @@ public class KafkaImporter implements Runnable {
     long docCount = 0;
     long docCommitInterval = 0;
     Instant prevCommit = Instant.now();
+    Map<TopicPartition, OffsetAndMetadata> currentOffsets = new HashMap<>();
+    Map<TopicPartition, OffsetAndMetadata> prevOffsets = new HashMap<>();
 
     // Create a consumer and begin processing records
     try (Consumer<String, SolrDocument> consumer = createConsumer()) {
@@ -263,6 +265,8 @@ public class KafkaImporter implements Runnable {
                 updateHandler.processAdd(add);
                 docCount++;
                 docCommitInterval++;
+                currentOffsets.put(new TopicPartition(record.topic(), record.partition()),
+                    new OffsetAndMetadata(record.offset() + 1));
               } catch (IOException | SolrException e) {
                 log.error("Couldn't add solr doc...", e);
               }
@@ -278,13 +282,14 @@ public class KafkaImporter implements Runnable {
                     "\nLast Interval Length: {} seconds",
                 interval / docCount, interval, docCount, docCommitInterval,
                 (Instant.now().toEpochMilli() - prevCommit.toEpochMilli()) / 1000.0);
-            commit(consumer);
+            commit(consumer, prevOffsets);
+            prevOffsets.putAll(currentOffsets);
+            currentOffsets.clear();
 
             // Update some metric info
             prevCommit = Instant.now();
             docCommitInterval = 0;
           }
-
         } finally {
           // Deregister the update when done
           core.getSolrCoreState().deregisterInFlightUpdate();
@@ -300,13 +305,16 @@ public class KafkaImporter implements Runnable {
   /**
    * Commits most recent offsets to Kafka asynchronously.
    */
-  private void commit(Consumer<String, SolrDocument> consumer) {
-    log.info("Committing back to Kafka after {} delay and updating consumer group lag info", commitInterval);
-    try {
-      consumer.commitAsync();
-    } catch (CommitFailedException e) {
-      log.error("Commit failed", e);
+  private void commit(Consumer<String, SolrDocument> consumer, Map<TopicPartition, OffsetAndMetadata> map) {
+    if (map.isEmpty()) {
+      log.info("Map is empty, skipping commits for this round");
+      return;
     }
+    log.info("Committing previous offsets back to Kafka after {} delay", commitInterval);
+    consumer.commitAsync(map, (offsets, e) -> {
+      log.info("Commit failed", e);
+    });
+    map.clear();
   }
 
   /**
