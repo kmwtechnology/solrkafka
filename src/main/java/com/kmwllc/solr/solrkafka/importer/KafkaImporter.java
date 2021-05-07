@@ -270,23 +270,24 @@ public class KafkaImporter implements Runnable {
           } else {
             log.info("No records received");
           }
+
+          // If commitInterval has elapsed, commit back to Kafka
+          if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
+            double interval = System.currentTimeMillis() - startTime;
+            log.info("\nAverage doc processing time: {} ms\nTotal elapsed time: {}\nTotal docs processed: {}\nDocs processed in commit interval: {}" +
+                    "\nLast Interval Length: {} seconds",
+                interval / docCount, interval, docCount, docCommitInterval,
+                (Instant.now().toEpochMilli() - prevCommit.toEpochMilli()) / 1000.0);
+            commit(consumer);
+
+            // Update some metric info
+            prevCommit = Instant.now();
+            docCommitInterval = 0;
+          }
+
         } finally {
           // Deregister the update when done
           core.getSolrCoreState().deregisterInFlightUpdate();
-        }
-
-        // If commitInterval has elapsed, commit back to Kafka
-        if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
-          double interval = System.currentTimeMillis() - startTime;
-          log.info("\nAverage doc processing time: {} ms\nTotal elapsed time: {}\nTotal docs processed: {}\nDocs processed in commit interval: {}" +
-                  "\nLast Interval Length: {} seconds",
-              interval / docCount, interval, docCount, docCommitInterval,
-              (Instant.now().toEpochMilli() - prevCommit.toEpochMilli()) / 1000.0);
-          commit(consumer);
-
-          // Update some metric info
-          prevCommit = Instant.now();
-          docCommitInterval = 0;
         }
       }
     } catch (Throwable e) {
@@ -366,7 +367,6 @@ public class KafkaImporter implements Runnable {
 
     // Create an Admin to use
     try (final Admin admin = Admin.create(props)) {
-      final Map<TopicPartition, Long> ends = new HashMap<>();
       KafkaFuture<TopicDescription> future = admin.describeTopics(Collections.singletonList(topic))
           .values().get(topic);
       if (future == null) {
