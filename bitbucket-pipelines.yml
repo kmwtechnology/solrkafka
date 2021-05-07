@@ -19,6 +19,7 @@ pipelines:
     - step:
         name: Build
         caches:
+          - docker
           - pip
         script:
           - docker build -t kmw:solrkafka-test -f Dockerfile-test . # (might help if it's not working) --no-cache
