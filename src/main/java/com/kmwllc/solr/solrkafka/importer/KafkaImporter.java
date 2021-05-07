@@ -289,7 +289,6 @@ public class KafkaImporter implements Runnable {
           docCommitInterval = 0;
         }
       }
-      commit(consumer);
     } catch (Throwable e) {
       log.error("Error encountered while running importer", e);
     }

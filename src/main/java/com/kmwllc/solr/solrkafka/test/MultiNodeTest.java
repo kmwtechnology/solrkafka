@@ -264,8 +264,10 @@ public class MultiNodeTest implements AutoCloseable {
         log.info("Expected doc numbers for shards found");
         return;
       }
-      log.info("Forcing commit in state check");
-      manager.forceCommit();
+      if (i % 3 == 0) {
+        log.info("Forcing commit in state check");
+        manager.forceCommit();
+      }
     }
     throw new IllegalStateException("Errors found in state after 25 rounds of requests");
   }
