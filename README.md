@@ -66,6 +66,8 @@ Copy the following into the solrconfig.xml file, and make sure the `openSearcher
         <str name="topicNames">testtopic</str>
         <!-- The max poll interval for Kafka before the importer's consumer is evicted. -->
         <str name="kafkaPollInterval">45000</str>
+        <!-- The max number of docs to be returned by a Kafka Consumer on poll. -->
+        <str name="kafkaPollRecords">100</str>
         <!-- Kafka consumer behavior when no previous offset is found. Acceptable values are "latest" or "beginning". -->
         <str name="autoOffsetResetConfig">beginning</str>
     </lst>

@@ -31,6 +31,7 @@ import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -97,6 +98,12 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
    * {@link this#commitInterval} Default is 45000.
    */
   private int kafkaPollInterval = 45000;
+
+  /**
+   * The maximum number of documents to be returned by the Kafka consumer in a single call to
+   * {@link org.apache.kafka.clients.consumer.Consumer#poll(Duration)}. Default is 100.
+   */
+  private int kafkaMaxPollRecords = 100;
 
   /**
    * True if the Kafka consumer should start polling from the earliest offset where no existing offsets are found.
@@ -279,7 +286,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
 
     // Create the importer
     importer = new KafkaImporter(core, kafkaBroker, topicNames, commitInterval,
-        ignoreShardRouting, incomingDataType, kafkaPollInterval, autoOffsetResetBeginning);
+        ignoreShardRouting, incomingDataType, kafkaPollInterval, autoOffsetResetBeginning, kafkaMaxPollRecords);
 
 
     // Sets up the status handler and starts the importer
@@ -315,6 +322,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     Object kafkaBroker = info.initArgs.findRecursive("defaults", "kafkaBroker");
     Object kafkaPollInterval = info.initArgs.findRecursive("defaults", "kafkaPollInterval");
     Object autoOffsetResetConfig = info.initArgs.findRecursive("defaults", "autoOffsetResetConfig");
+    Object kafkaPollRecords = info.initArgs.findRecursive("defaults", "kafkaPollRecords");
 
     // If the values from the defaults section are present, override
     if (incomingDataType != null) {
@@ -337,6 +345,9 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
     }
     if (autoOffsetResetConfig != null) {
       this.autoOffsetResetBeginning = autoOffsetResetConfig.toString().equalsIgnoreCase("beginning");
+    }
+    if (kafkaPollRecords != null) {
+      this.kafkaMaxPollRecords = Integer.parseInt(kafkaPollRecords.toString());
     }
   }
 
@@ -463,21 +474,6 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
         }
-
-        // Add hook to stop the importer when the core is shutting down
-        core.addCloseHook(new CloseHook() {
-          @Override
-          public void preClose(SolrCore core) {
-            log.info("SolrCore shutting down");
-            if (importer != null && importer.isRunning()) {
-              importer.stop();
-            }
-          }
-
-          @Override
-          public void postClose(SolrCore core) {
-          }
-        });
       }
     } catch(Throwable e){
       log.fatal("SolrKafkaRequestHandler could not be set up", e);

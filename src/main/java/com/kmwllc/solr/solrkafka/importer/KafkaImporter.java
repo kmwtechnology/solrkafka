@@ -102,6 +102,9 @@ public class KafkaImporter implements Runnable {
   /** The maximum poll interval that Kafka should allow before evicting the consumer. */
   private final int kafkaPollInterval;
 
+  /** The maximum number of documents to return on a {@link Consumer#poll(Duration)} call. */
+  private final int kafkaMaxPollRecords;
+
   /**
    * True if the Kafka consumer should start polling from the earliest offset where no existing offsets are found.
    * False if it should start from the latest offset.
@@ -126,7 +129,8 @@ public class KafkaImporter implements Runnable {
    * @param autoOffsetResetBeginning true if the offset should be automatically set to earliest (latest is false)
    */
   public KafkaImporter(SolrCore core, String kafkaBroker, List<String> topicNames, long commitInterval,
-                       boolean ignoreShardRouting, String dataType, int kafkaPollInterval, boolean autoOffsetResetBeginning) {
+                       boolean ignoreShardRouting, String dataType, int kafkaPollInterval, boolean autoOffsetResetBeginning,
+                       int kafkaMaxPollRecords) {
     this.topicNames = topicNames;
     this.ignoreShardRouting = ignoreShardRouting;
     this.core = core;
@@ -136,6 +140,7 @@ public class KafkaImporter implements Runnable {
     this.kafkaPollInterval = kafkaPollInterval;
     this.autoOffsetResetBeginning = autoOffsetResetBeginning;
     this.dataType = dataType;
+    this.kafkaMaxPollRecords = kafkaMaxPollRecords;
 
     // Create the thread
     thread = new Thread(this, "KafkaImporter Async Runnable");
@@ -178,25 +183,22 @@ public class KafkaImporter implements Runnable {
     log.info("Stopping importer");
     running = false;
 
+    long maxWait = System.currentTimeMillis() + 2000;
     // Let the importer try to stop on its own
-    if (thread.isAlive()) {
-      try {
-        Thread.sleep(pollTimeout.toMillis() * 2);
-      } catch (InterruptedException e) {
-        log.error("Thread interrupted while stopping", e);
-      }
-    }
-
-    // Interrupt the thread if it couldn't shut down on its own
-    if (thread.isAlive()) {
-      log.warn("Thread took too long to shut down; interrupting thread");
-      thread.interrupt();
+    while (thread.isAlive() && System.currentTimeMillis() <= maxWait) {
+      Thread.onSpinWait();
     }
 
     try {
       updateHandler.close();
     } catch (IOException e) {
       log.error("Error closing Update Handler", e);
+    }
+
+    // Interrupt the thread if it couldn't shut down on its own
+    if (thread.isAlive()) {
+      log.warn("Thread took too long to shut down; interrupting thread");
+      thread.interrupt();
     }
   }
 
@@ -403,6 +405,7 @@ public class KafkaImporter implements Runnable {
     props.putIfAbsent(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
     props.putIfAbsent(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
     props.putIfAbsent(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, kafkaPollInterval);
+    props.putIfAbsent(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, kafkaMaxPollRecords);
 
     // Get the value deserializer based on the data type field from the SerdeFactory
     props.putIfAbsent(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SerdeFactory.getDeserializer(dataType).getName());
