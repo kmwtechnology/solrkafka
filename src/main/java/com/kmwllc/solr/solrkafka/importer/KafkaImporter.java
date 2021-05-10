@@ -19,6 +19,8 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.solr.client.solrj.response.QueryResponse;
+import org.apache.solr.client.solrj.response.UpdateResponse;
 import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
@@ -28,7 +30,9 @@ import org.apache.solr.common.util.NamedList;
 import org.apache.solr.core.SolrCore;
 import org.apache.solr.request.LocalSolrQueryRequest;
 import org.apache.solr.request.SolrQueryRequest;
+import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.update.AddUpdateCommand;
+import org.apache.solr.update.UpdateHandler;
 import org.apache.solr.update.processor.DistributedUpdateProcessorFactory;
 import org.apache.solr.update.processor.UpdateRequestProcessor;
 import org.apache.solr.update.processor.UpdateRequestProcessorChain;
@@ -69,9 +73,6 @@ public class KafkaImporter implements Runnable {
   /** The reference to the currently used {@link SolrCore}. */
   private final SolrCore core;
 
-  /** The created {@link UpdateRequestProcessorChain} that will be used for adding the document locally. */
-  private final UpdateRequestProcessor updateHandler;
-
   /** The time that the KafkaImporter is allowed to block for before returning if no records are received. */
   private final Duration pollTimeout = Duration.ofMillis(1000);
 
@@ -111,13 +112,6 @@ public class KafkaImporter implements Runnable {
    */
   private final boolean autoOffsetResetBeginning;
 
-  // Set up request args
-  static {
-    SOLR_REQUEST_ARGS.add("commitWithin", "1000");
-    SOLR_REQUEST_ARGS.add("overwrite", "true");
-    SOLR_REQUEST_ARGS.add("wt", "json");
-  }
-
   /**
    * @param core The {@link SolrCore} to add documents to
    * @param kafkaBroker The Kafka broker connect string
@@ -135,7 +129,6 @@ public class KafkaImporter implements Runnable {
     this.ignoreShardRouting = ignoreShardRouting;
     this.core = core;
     this.kafkaBroker = kafkaBroker;
-    this.updateHandler = createUpdateHandler(core);
     this.commitInterval = Duration.ofMillis(commitInterval);
     this.kafkaPollInterval = kafkaPollInterval;
     this.autoOffsetResetBeginning = autoOffsetResetBeginning;
@@ -153,17 +146,19 @@ public class KafkaImporter implements Runnable {
    *
    * @return A {@link UpdateRequestProcessor} instance
    */
-  private UpdateRequestProcessor createUpdateHandler(SolrCore core) {
+  private UpdateRequestProcessor createUpdateHandler(SolrCore core, SolrQueryResponse res) {
     SolrParams params = new MultiMapSolrParams(Map.of());
     UpdateRequestProcessorChain chain = core.getUpdateProcessorChain(params);
+    LocalSolrQueryRequest req = new LocalSolrQueryRequest(core, params);
+    SolrCore.preDecorateResponse(req, res);
     if (!ignoreShardRouting) {
-      return chain.createProcessor(new LocalSolrQueryRequest(core, params), null);
+      return chain.createProcessor(req, res);
     }
 
     List<UpdateRequestProcessorFactory> factories = new ArrayList<>(chain.getProcessors());
     return new UpdateRequestProcessorChain(
         factories.stream().filter(fac -> !(fac instanceof DistributedUpdateProcessorFactory)).collect(Collectors.toList()),
-        core).createProcessor(new LocalSolrQueryRequest(core, params), null);
+        core).createProcessor(req, res);
   }
 
   /**
@@ -187,12 +182,6 @@ public class KafkaImporter implements Runnable {
     // Let the importer try to stop on its own
     while (thread.isAlive() && System.currentTimeMillis() <= maxWait) {
       Thread.onSpinWait();
-    }
-
-    try {
-      updateHandler.close();
-    } catch (IOException e) {
-      log.error("Error closing Update Handler", e);
     }
 
     // Interrupt the thread if it couldn't shut down on its own
@@ -244,7 +233,8 @@ public class KafkaImporter implements Runnable {
           break;
         }
 
-        try {
+        SolrQueryResponse res = new SolrQueryResponse();
+        try (UpdateRequestProcessor updateHandler = createUpdateHandler(core, res)) {
           // Consume records from Kafka
           ConsumerRecords<String, SolrDocument> consumerRecords = consumer.poll(pollTimeout);
 
@@ -271,6 +261,12 @@ public class KafkaImporter implements Runnable {
                 log.error("Couldn't add solr doc...", e);
               }
             }
+            updateHandler.finish();
+            Object rfValue = res.getResponseHeader().get("rf");
+            if (rfValue != null) {
+              Integer rf = Integer.parseInt(rfValue.toString());
+              log.info("RF found {}", rf);
+            }
           } else {
             log.info("No records received");
           }
@@ -296,7 +292,7 @@ public class KafkaImporter implements Runnable {
         }
       }
     } catch (Throwable e) {
-      log.error("Error encountered while running importer", e);
+      log.error("Error encountered while running importer on core {}", core.getName(), e);
     }
 
     log.info("KafkaImporter finished");
