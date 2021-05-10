@@ -6,7 +6,6 @@ import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.ConsumerGroupListing;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.admin.TopicDescription;
-import org.apache.kafka.clients.admin.TopicListing;
 import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -19,8 +18,6 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.solr.client.solrj.response.QueryResponse;
-import org.apache.solr.client.solrj.response.UpdateResponse;
 import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
@@ -32,7 +29,6 @@ import org.apache.solr.request.LocalSolrQueryRequest;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.update.AddUpdateCommand;
-import org.apache.solr.update.UpdateHandler;
 import org.apache.solr.update.processor.DistributedUpdateProcessorFactory;
 import org.apache.solr.update.processor.UpdateRequestProcessor;
 import org.apache.solr.update.processor.UpdateRequestProcessorChain;
@@ -218,8 +214,6 @@ public class KafkaImporter implements Runnable {
     long docCount = 0;
     long docCommitInterval = 0;
     Instant prevCommit = Instant.now();
-    Map<TopicPartition, OffsetAndMetadata> currentOffsets = new HashMap<>();
-    Map<TopicPartition, OffsetAndMetadata> prevOffsets = new HashMap<>();
 
     // Create a consumer and begin processing records
     try (Consumer<String, SolrDocument> consumer = createConsumer()) {
@@ -255,18 +249,17 @@ public class KafkaImporter implements Runnable {
                 updateHandler.processAdd(add);
                 docCount++;
                 docCommitInterval++;
-                currentOffsets.put(new TopicPartition(record.topic(), record.partition()),
-                    new OffsetAndMetadata(record.offset() + 1));
               } catch (IOException | SolrException e) {
                 log.error("Couldn't add solr doc...", e);
               }
             }
             updateHandler.finish();
             Object rfValue = res.getResponseHeader().get("rf");
-            if (rfValue != null) {
-              Integer rf = Integer.parseInt(rfValue.toString());
-              log.info("RF found {}", rf);
+            if (rfValue == null) {
+              throw new IllegalStateException("No RF value found");
             }
+            Integer rf = Integer.parseInt(rfValue.toString());
+            log.info("RF found {}", rf);
           } else {
             log.info("No records received");
           }
@@ -278,9 +271,7 @@ public class KafkaImporter implements Runnable {
                     "\nLast Interval Length: {} seconds",
                 interval / docCount, interval, docCount, docCommitInterval,
                 (Instant.now().toEpochMilli() - prevCommit.toEpochMilli()) / 1000.0);
-            commit(consumer, prevOffsets);
-            prevOffsets.putAll(currentOffsets);
-            currentOffsets.clear();
+            commit(consumer);
 
             // Update some metric info
             prevCommit = Instant.now();
@@ -301,16 +292,13 @@ public class KafkaImporter implements Runnable {
   /**
    * Commits most recent offsets to Kafka asynchronously.
    */
-  private void commit(Consumer<String, SolrDocument> consumer, Map<TopicPartition, OffsetAndMetadata> map) {
-    if (map.isEmpty()) {
-      log.info("Map is empty, skipping commits for this round");
-      return;
-    }
+  private void commit(Consumer<String, SolrDocument> consumer) {
     log.info("Committing previous offsets back to Kafka after {} delay", commitInterval);
-    consumer.commitAsync(map, (offsets, e) -> {
-      log.info("Commit failed", e);
-    });
-    map.clear();
+    try {
+      consumer.commitAsync();
+    } catch (CommitFailedException e) {
+      log.error("Commit failed", e);
+    }
   }
 
   /**
