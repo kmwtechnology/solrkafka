@@ -170,6 +170,7 @@ public class SingleNodeTest implements AutoCloseable {
         JsonNode lag = body.get("consumer_group_lag");
         boolean finished = true;
         if (lag.size() == 0) {
+          numStatic++;
           continue;
         }
         int offsetSums = 0;

@@ -289,6 +289,7 @@ public class SolrManager implements AutoCloseable {
         boolean finished = true;
         // If there are no entries, try again
         if (lag.size() == 0) {
+          numStatic++;
           continue;
         }
 

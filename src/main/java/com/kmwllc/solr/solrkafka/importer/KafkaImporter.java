@@ -256,10 +256,11 @@ public class KafkaImporter implements Runnable {
             updateHandler.finish();
             Object rfValue = res.getResponseHeader().get("rf");
             if (rfValue == null) {
-              throw new IllegalStateException("No RF value found");
+              log.info("No RF value found: {}", res.getResponseHeader());
+            } else {
+              Integer rf = Integer.parseInt(rfValue.toString());
+              log.info("RF found {}", rf);
             }
-            Integer rf = Integer.parseInt(rfValue.toString());
-            log.info("RF found {}", rf);
           } else {
             log.info("No records received");
           }
