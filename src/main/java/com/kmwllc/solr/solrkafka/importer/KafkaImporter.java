@@ -250,16 +250,25 @@ public class KafkaImporter implements Runnable {
                 docCount++;
                 docCommitInterval++;
               } catch (IOException | SolrException e) {
-                log.error("Couldn't add solr doc...", e);
+                // TODO: what zkCheck() logic do we want to add (possibly later)?
+                log.error("Couldn't add solr doc: {}", record.key(), e);
               }
             }
             updateHandler.finish();
+
+            // Logs replication factor information
             Object rfValue = res.getResponseHeader().get("rf");
             if (rfValue == null) {
               log.info("No RF value found: {}", res.getResponseHeader());
             } else {
               Integer rf = Integer.parseInt(rfValue.toString());
               log.info("RF found {}", rf);
+            }
+
+            if (core.getCoreContainer().isShutDown()) {
+              running = false;
+              log.info("Core seems to be shutting down, stopping importer");
+              break;
             }
           } else {
             log.info("No records received");
