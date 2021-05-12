@@ -467,6 +467,8 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
         try {
           // If we've been set up to run, start running
           if (shouldRun && isCoreEligible()) {
+            // Give the core 5 seconds to get into recovery mode
+            Thread.sleep(5000);
             startImporter();
           } else if (!isCoreEligible()) {
             log.info("Not starting importer because core is not eligible to start");
