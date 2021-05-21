@@ -70,7 +70,7 @@ pipelines:
             artifacts:
               - logs-8983/*
               - logs-7574/*
-              - '/var/solr/data/**/data/*'
+              - /var/solr/data/cloudKillTest*/data/*
         - step:
             name: Multi Node Test All Shard Routing
             caches:
@@ -90,7 +90,7 @@ pipelines:
             artifacts:
               - logs-8983/*
               - logs-7574/*
-              - '/var/solr/data/**/data/*'
+              - /var/solr/data/*/data/*
         - step:
             name: Multi Node Kill Test
             caches:
@@ -110,7 +110,7 @@ pipelines:
             artifacts:
               - logs-8983/*
               - logs-7574/*
-              - '/var/solr/data/**/data/*'
+              - '/var/solr/data/*/data/*'
         - step:
             name: Multi Node Kill Test All Shard Routing
             caches:
@@ -130,7 +130,7 @@ pipelines:
             artifacts:
               - logs-8983/*
               - logs-7574/*
-              - '/var/solr/data/**/data/*'
+              - /var/solr/data/**/data/*
 #        - step:
 #            name: Failure Test
 #            caches:

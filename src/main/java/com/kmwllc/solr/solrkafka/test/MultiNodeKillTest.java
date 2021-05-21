@@ -47,7 +47,7 @@ public class MultiNodeKillTest implements AutoCloseable {
   private static final String kafkaPort = ":9092";
   private final TestDocumentCreator docs;
   private final boolean ignoreShardRouting;
-  private static final int NUM_DOCS = 15_000;
+  private static final int NUM_DOCS = 150_000;
   private final SolrManager manager;
   private volatile long numDocsSeeded = 0;
   private volatile boolean seedDocs = true;
