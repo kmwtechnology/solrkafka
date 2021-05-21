@@ -209,7 +209,7 @@ public class SolrManager implements AutoCloseable {
       try {
         return client.execute(req);
       } catch (IOException e) {
-        throw new UncheckedIOException(e);
+        throw new UncheckedIOException("Error making request: " + req.toString(), e);
       }
     });
     try (CloseableHttpResponse res = thread.get(30000, TimeUnit.MILLISECONDS);

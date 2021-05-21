@@ -143,14 +143,10 @@ public class MultiNodeKillTest implements AutoCloseable {
         ProducerRecord<String, SolrDocument> record = new ProducerRecord<>(topic, doc.get("id").toString(), doc);
         producer.send(record);
         // Fine that this is non-atomic, we're not accessing it outside of thread until thread is dead
-        if (++numDocsSeeded % 5 == 0) {
+        if (++numDocsSeeded % 500 == 0) {
           log.info("Added {} docs to Kafka", numDocsSeeded);
         }
-        // 1 doc/sec
-        Thread.sleep(1000);
       }
-    } catch (InterruptedException e) {
-      log.error("Seeder thread interrupted, exiting", e);
     }
     log.info("Seeded {} docs", numDocsSeeded);
   }
@@ -195,7 +191,8 @@ public class MultiNodeKillTest implements AutoCloseable {
     // Check that the solrManagerThread successfully completed
     if (!solrManagerThread.isDone() || solrManagerThread.isCompletedExceptionally() || !solrManagerThread.get()) {
       throw new IllegalStateException("Waited for test setup to finish but manager thread still running " +
-          "or completed exceptionally");
+          "or completed exceptionally: done = " + solrManagerThread.isDone() + ", exceptions = " +
+          solrManagerThread.isCompletedExceptionally() + ", thread response = " + solrManagerThread.get());
     }
 
     // Continue test normally (see MultiNodeTest)
