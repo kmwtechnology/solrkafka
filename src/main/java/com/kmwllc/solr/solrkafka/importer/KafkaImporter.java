@@ -29,7 +29,6 @@ import org.apache.solr.request.LocalSolrQueryRequest;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.update.AddUpdateCommand;
-import org.apache.solr.update.UpdateHandler;
 import org.apache.solr.update.processor.DistributedUpdateProcessorFactory;
 import org.apache.solr.update.processor.UpdateRequestProcessor;
 import org.apache.solr.update.processor.UpdateRequestProcessorChain;
@@ -228,6 +227,22 @@ public class KafkaImporter implements Runnable {
           break;
         }
 
+        // If commitInterval has elapsed, commit back to Kafka
+        // Done before pulling from Kafka and indexing so that we can be sure the core isn't shutting down before
+        // doing this
+        if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
+          double interval = System.currentTimeMillis() - startTime;
+          log.info("\nAverage doc processing time: {} ms\nTotal elapsed time: {}\nTotal docs processed: {}\nDocs processed in commit interval: {}" +
+                  "\nLast Interval Length: {} seconds",
+              interval / docCount, interval, docCount, docCommitInterval,
+              (Instant.now().toEpochMilli() - prevCommit.toEpochMilli()) / 1000.0);
+          commit(consumer);
+
+          // Update some metric info
+          prevCommit = Instant.now();
+          docCommitInterval = 0;
+        }
+
         SolrQueryResponse res = new SolrQueryResponse();
         try (UpdateRequestProcessor updateHandler = createUpdateHandler(core, res)) {
           // Consume records from Kafka
@@ -243,6 +258,8 @@ public class KafkaImporter implements Runnable {
               SolrQueryRequest request = new LocalSolrQueryRequest(core, SOLR_REQUEST_ARGS);
               request.setJSON(record.value());
               AddUpdateCommand add = new AddUpdateCommand(request);
+
+              // Sets the doc that's actually indexed on the command
               add.solrDoc = convertToInputDoc(record.value());
 
               // Attempt to add the update
@@ -251,14 +268,15 @@ public class KafkaImporter implements Runnable {
                 docCount++;
                 docCommitInterval++;
               } catch (IOException | SolrException e) {
-                // TODO: what zkCheck() logic do we want to add (possibly later)?
+                // TODO: what do we want to do with a failed doc?
                 log.error("Couldn't add solr doc: {}", record.key(), e);
               }
             }
             updateHandler.finish();
 
-            // Logs replication factor information
+            // Logs replication factor information (currently does not perform any check)
             Object rfValue = res.getResponseHeader().get("rf");
+            // TODO: could check failed request status
             if (rfValue == null) {
               log.info("No RF value found: {}", res.getResponseHeader());
             } else {
@@ -269,24 +287,13 @@ public class KafkaImporter implements Runnable {
             if (core.getCoreContainer().isShutDown()) {
               running = false;
               log.info("Core seems to be shutting down, stopping importer");
-              break;
+            } else if (core.getCoreContainer().getZkController() != null &&
+                core.getCoreContainer().getZkController().getZkClient().getConnectionManager().isLikelyExpired()) {
+              running = false;
+              log.info("ZK connection is likely expired, stopping importer");
             }
           } else {
             log.info("No records received");
-          }
-
-          // If commitInterval has elapsed, commit back to Kafka
-          if (prevCommit.plus(commitInterval).isBefore(Instant.now())) {
-            double interval = System.currentTimeMillis() - startTime;
-            log.info("\nAverage doc processing time: {} ms\nTotal elapsed time: {}\nTotal docs processed: {}\nDocs processed in commit interval: {}" +
-                    "\nLast Interval Length: {} seconds",
-                interval / docCount, interval, docCount, docCommitInterval,
-                (Instant.now().toEpochMilli() - prevCommit.toEpochMilli()) / 1000.0);
-            commit(consumer);
-
-            // Update some metric info
-            prevCommit = Instant.now();
-            docCommitInterval = 0;
           }
         } finally {
           // Deregister the update when done
@@ -364,6 +371,14 @@ public class KafkaImporter implements Runnable {
     }
   }
 
+  /**
+   * Gets the end offsets for each consumer group. Static so that info can be retrieved without actually needing an
+   * instance of this class to run.
+   *
+   * @param kafkaBroker The Kafka broker connect string
+   * @param topic The topics that offsets should be returned for
+   * @return a map of topic, partition, and group name to offset
+   */
   public static Map<String, Long> getEndOffsets(String kafkaBroker, String topic) {
     final Properties props = new Properties();
     props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBroker);

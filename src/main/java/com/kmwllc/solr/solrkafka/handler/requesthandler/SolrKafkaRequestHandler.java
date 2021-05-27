@@ -449,6 +449,14 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
             // TODO: should this throw a SolrException?
             log.error("Could not initialize ZK client");
             return;
+          } else {
+            try {
+              // Sleep for 100 milliseconds before retrying
+              Thread.sleep(100);
+            } catch (InterruptedException e) {
+              log.error("Interrupted while setting up cloud mode", e);
+              break;
+            }
           }
         }
       }
@@ -468,7 +476,7 @@ public class SolrKafkaRequestHandler extends RequestHandlerBase
           // If we've been set up to run, start running
           if (shouldRun && isCoreEligible()) {
             // Give the core 5 seconds to get into recovery mode
-            Thread.sleep(5000);
+//            Thread.sleep(5000);
             startImporter();
           } else if (!isCoreEligible()) {
             log.info("Not starting importer because core is not eligible to start");
