@@ -144,9 +144,12 @@ public class MultiNodeKillTest implements AutoCloseable {
         producer.send(record);
         // Fine that this is non-atomic, we're not accessing it outside of thread until thread is dead
         if (++numDocsSeeded % 500 == 0) {
+          Thread.sleep(1000);
           log.info("Added {} docs to Kafka", numDocsSeeded);
         }
       }
+    } catch (InterruptedException e) {
+      throw new IllegalStateException("Interrupted while seeding docs", e);
     }
     log.info("Seeded {} docs", numDocsSeeded);
   }

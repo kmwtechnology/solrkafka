@@ -22,7 +22,7 @@ pipelines:
           - docker
           - pip
         script:
-          - docker build -t kmw:solrkafka-test -f Dockerfile-test . # (might help if it's not working) --no-cache
+          - docker build -t kmw:solrkafka-test -f Dockerfile-test .
           - docker save --output solrkafka-test.docker kmw:solrkafka-test
           - pip install docker-compose
         after-script:
@@ -46,11 +46,13 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.SingleNodeTest -d
             after-script:
+              - docker commit solrkafka_solr kmw:solrkafka-test-export
+              - docker save --output solrkafka-test-export.docker kmw:solrkafka-test-export
               - docker cp solrkafka_solr:/var/solr/logs/ ./logs
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
               - logs/*
-              - /var/solr/data/*
+              - solrkafka-test-export.docker
         - step:
             name: Multi Node Test Normal Routing
             caches:
@@ -64,13 +66,18 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d
             after-script:
+              - docker commit solrkafka_solr_8983 kmw:solrkafka-test-export-8983
+              - docker commit solrkafka_solr_7574 kmw:solrkafka-test-export-7574
+              - docker save --output solrkafka-test-export-8983.docker kmw:solrkafka-test-export-8983
+              - docker save --output solrkafka-test-export-7574.docker kmw:solrkafka-test-export-7574
               - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs-8983
               - docker cp solrkafka_solr_7574:/var/solr/logs/ ./logs-7574
               - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
             artifacts:
               - logs-8983/*
               - logs-7574/*
-              - /var/solr/data/*
+              - solrkafka-test-export-8983.docker
+              - solrkafka-test-export-7574.docker
         - step:
             name: Multi Node Test All Shard Routing
             caches:
@@ -84,13 +91,18 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeTest -d -i
             after-script:
+              - docker commit solrkafka_solr_8983 kmw:solrkafka-test-export-8983
+              - docker commit solrkafka_solr_7574 kmw:solrkafka-test-export-7574
+              - docker save --output solrkafka-test-export-8983.docker kmw:solrkafka-test-export-8983
+              - docker save --output solrkafka-test-export-7574.docker kmw:solrkafka-test-export-7574
               - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs-8983
               - docker cp solrkafka_solr_7574:/var/solr/logs/ ./logs-7574
               - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
             artifacts:
               - logs-8983/*
               - logs-7574/*
-              - /var/solr/data/*
+              - solrkafka-test-export-8983.docker
+              - solrkafka-test-export-7574.docker
         - step:
             name: Multi Node Kill Test
             caches:
@@ -104,13 +116,18 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeKillTest -d
             after-script:
+              - docker commit solrkafka_solr_8983 kmw:solrkafka-test-export-8983
+              - docker commit solrkafka_solr_7574 kmw:solrkafka-test-export-7574
+              - docker save --output solrkafka-test-export-8983.docker kmw:solrkafka-test-export-8983
+              - docker save --output solrkafka-test-export-7574.docker kmw:solrkafka-test-export-7574
               - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs-8983
               - docker cp solrkafka_solr_7574:/var/solr/logs/ ./logs-7574
               - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
             artifacts:
               - logs-8983/*
               - logs-7574/*
-              - /var/solr/data/*
+              - solrkafka-test-export-8983.docker
+              - solrkafka-test-export-7574.docker
         - step:
             name: Multi Node Kill Test All Shard Routing
             caches:
@@ -124,13 +141,18 @@ pipelines:
               - sleep 20
               - docker exec -t solrkafka_solr_8983 java -cp "/var/solr/data/lib/*" com.kmwllc.solr.solrkafka.test.MultiNodeKillTest -d -i
             after-script:
+              - docker commit solrkafka_solr_8983 kmw:solrkafka-test-export-8983
+              - docker commit solrkafka_solr_7574 kmw:solrkafka-test-export-7574
+              - docker save --output solrkafka-test-export-8983.docker kmw:solrkafka-test-export-8983
+              - docker save --output solrkafka-test-export-7574.docker kmw:solrkafka-test-export-7574
               - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs-8983
               - docker cp solrkafka_solr_7574:/var/solr/logs/ ./logs-7574
               - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
             artifacts:
               - logs-8983/*
               - logs-7574/*
-              - /var/solr/data/*
+              - solrkafka-test-export-8983.docker
+              - solrkafka-test-export-7574.docker
 #        - step:
 #            name: Failure Test
 #            caches:
