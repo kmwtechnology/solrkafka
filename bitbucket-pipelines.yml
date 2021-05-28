@@ -13,7 +13,7 @@ options:
 definitions:
   services:
     docker:
-      memory: 6144
+      memory: 8000
 pipelines:
   default:
     - step:
@@ -145,6 +145,7 @@ pipelines:
               - docker commit solrkafka_solr_7574 kmw:solrkafka-test-export-7574
               - docker save --output solrkafka-test-export-8983.docker kmw:solrkafka-test-export-8983
               - docker save --output solrkafka-test-export-7574.docker kmw:solrkafka-test-export-7574
+              - docker image ls
               - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs-8983
               - docker cp solrkafka_solr_7574:/var/solr/logs/ ./logs-7574
               - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
