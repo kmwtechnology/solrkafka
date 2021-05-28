@@ -52,7 +52,7 @@ pipelines:
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
               - logs.tar.gz
-              - data/*
+              - data/**
         - step:
             name: Multi Node Test Normal Routing
             caches:
