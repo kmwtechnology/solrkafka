@@ -215,6 +215,9 @@ public class KafkaImporter implements Runnable {
     long docCommitInterval = 0;
     Instant prevCommit = Instant.now();
 
+    final Map<TopicPartition, OffsetAndMetadata> currentRound = new HashMap<>();
+    final Map<TopicPartition, OffsetAndMetadata> previousRound = new HashMap<>();
+
     // Create a consumer and begin processing records
     try (Consumer<String, SolrDocument> consumer = createConsumer()) {
       // Run while running is true
@@ -236,7 +239,10 @@ public class KafkaImporter implements Runnable {
                   "\nLast Interval Length: {} seconds",
               interval / docCount, interval, docCount, docCommitInterval,
               (Instant.now().toEpochMilli() - prevCommit.toEpochMilli()) / 1000.0);
-          commit(consumer);
+          commit(consumer, previousRound);
+          previousRound.clear();
+          previousRound.putAll(currentRound);
+          currentRound.clear();
 
           // Update some metric info
           prevCommit = Instant.now();
@@ -267,6 +273,8 @@ public class KafkaImporter implements Runnable {
                 updateHandler.processAdd(add);
                 docCount++;
                 docCommitInterval++;
+                currentRound.put(new TopicPartition(record.topic(), record.partition()),
+                    new OffsetAndMetadata(record.offset() + 1));
               } catch (IOException | SolrException e) {
                 // TODO: what do we want to do with a failed doc?
                 log.error("Couldn't add solr doc: {}", record.key(), e);
@@ -285,10 +293,14 @@ public class KafkaImporter implements Runnable {
             }
 
             if (core.getCoreContainer().isShutDown()) {
+              currentRound.clear();
+              previousRound.clear();
               running = false;
               log.info("Core seems to be shutting down, stopping importer");
             } else if (core.getCoreContainer().getZkController() != null &&
                 core.getCoreContainer().getZkController().getZkClient().getConnectionManager().isLikelyExpired()) {
+              currentRound.clear();
+              previousRound.clear();
               running = false;
               log.info("ZK connection is likely expired, stopping importer");
             }
@@ -310,10 +322,15 @@ public class KafkaImporter implements Runnable {
   /**
    * Commits most recent offsets to Kafka asynchronously.
    */
-  private void commit(Consumer<String, SolrDocument> consumer) {
+  private void commit(Consumer<String, SolrDocument> consumer, Map<TopicPartition, OffsetAndMetadata> commitData) {
+    if (commitData.isEmpty()) {
+      log.info("No commit data for this round, skipping sync commit");
+      return;
+    }
+
     log.info("Committing previous offsets back to Kafka after {} delay", commitInterval);
     try {
-      consumer.commitAsync();
+      consumer.commitSync(commitData);
     } catch (CommitFailedException e) {
       log.error("Commit failed", e);
     }
