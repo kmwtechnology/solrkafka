@@ -53,7 +53,7 @@ pipelines:
               - docker-compose -f docker-compose-test.yml --verbose down -v --remove-orphans
             artifacts:
               - logs/*
-              - iamge.tar.gz
+              - image.tar.gz
         - step:
             name: Multi Node Test Normal Routing
             caches:
@@ -147,7 +147,6 @@ pipelines:
               - docker save --output solrkafka-test-export-8983.docker kmw:solrkafka-test-export-8983
               - docker save --output solrkafka-test-export-7574.docker kmw:solrkafka-test-export-7574
               - tar -czvf images.tar.gz solrkafka-test-export-8983.docker solrkafka-test-export-7574.docker
-              - docker image ls
               - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs-8983
               - docker cp solrkafka_solr_7574:/var/solr/logs/ ./logs-7574
               - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
