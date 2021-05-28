@@ -68,14 +68,16 @@ pipelines:
             after-script:
               - docker cp solrkafka_solr_8983:/var/solr/data ./data-8983
               - docker cp solrkafka_solr_8983:/var/solr/data ./data-7574
+              - tar -czvf data-8983.tar.gz data-8983
+              - tar -czvf data-7574.tar.gz data-7574
               - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs-8983
               - docker cp solrkafka_solr_7574:/var/solr/logs/ ./logs-7574
               - tar -czvf logs.tar.gz logs-8983 logs-7574
               - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
             artifacts:
               - logs.tar.gz
-              - data-8983/*
-              - data-7574/*
+              - data-8983.tar.gz
+              - data-7574.tar.gz
         - step:
             name: Multi Node Test All Shard Routing
             caches:
@@ -91,14 +93,14 @@ pipelines:
             after-script:
               - docker cp solrkafka_solr_8983:/var/solr/data ./data-8983
               - docker cp solrkafka_solr_8983:/var/solr/data ./data-7574
+              - tar -cvf data.tar data-8983 data-7574
               - docker cp solrkafka_solr_8983:/var/solr/logs/ ./logs-8983
               - docker cp solrkafka_solr_7574:/var/solr/logs/ ./logs-7574
               - tar -czvf logs.tar.gz logs-8983 logs-7574
               - docker-compose -f docker-compose-cloud-test.yml --verbose down -v --remove-orphans
             artifacts:
               - logs.tar.gz
-              - data-8983/*
-              - data-7574/*
+              - data.tar
         - step:
             name: Multi Node Kill Test
             caches:
