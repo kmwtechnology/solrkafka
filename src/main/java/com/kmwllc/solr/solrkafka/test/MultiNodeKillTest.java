@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -136,6 +137,7 @@ public class MultiNodeKillTest implements AutoCloseable {
     props.put(ProducerConfig.CLIENT_ID_CONFIG, "MultiNodeTestProducer");
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, SolrDocumentSerializer.class.getName());
+    Random random = new Random();
 
     try (Producer<String, SolrDocument> producer = new KafkaProducer<>(props)) {
       while (docs.hasNext() && seedDocs) {
@@ -145,6 +147,11 @@ public class MultiNodeKillTest implements AutoCloseable {
         // Fine that this is non-atomic, we're not accessing it outside of thread until thread is dead
         if (++numDocsSeeded % 500 == 0) {
           log.info("Added {} docs to Kafka", numDocsSeeded);
+        }
+
+        // Randomly sleep every once in a while for 100ms (aiming for 1s every 500 docs)
+        // Adds randomness and prevents OOM exception on pipelines
+        if (random.nextInt(50) == 0) {
           Thread.sleep(100);
         }
       }
